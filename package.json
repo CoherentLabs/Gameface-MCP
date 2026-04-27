@@ -1,0 +1,31 @@
+{
+  "name": "chrome-cdp-mcp-server",
+  "version": "1.0.0",
+  "description": "MCP server for Chrome DevTools Protocol automation",
+  "type": "module",
+  "main": "build/index.js",
+  "bin": {
+    "chrome-cdp-mcp": "build/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "prepare": "npm run build"
+  },
+  "keywords": [
+    "mcp",
+    "chrome",
+    "devtools",
+    "automation"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "chrome-remote-interface": "^0.34.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "typescript": "^6.0.3"
+  }
+}
