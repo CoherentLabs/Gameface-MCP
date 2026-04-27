@@ -1,0 +1,62 @@
+import { BrowserLauncher } from "../browser-launcher.js";
+import { LaunchBrowserParams, LaunchBrowserResult } from "../types.js";
+
+// Singleton browser launcher instance
+let browserLauncher: BrowserLauncher | null = null;
+
+/**
+ * Gets or creates the browser launcher instance
+ */
+export function getBrowserLauncher(): BrowserLauncher {
+  if (!browserLauncher) {
+    browserLauncher = new BrowserLauncher();
+  }
+  return browserLauncher;
+}
+
+/**
+ * MCP tool implementation for launching a browser
+ */
+export async function launchBrowser(params: LaunchBrowserParams): Promise<LaunchBrowserResult> {
+  const launcher = getBrowserLauncher();
+
+  // Check if browser is already running
+  if (launcher.isRunning()) {
+    return {
+      success: false,
+      port: launcher.getPort(),
+      message: "Browser is already running. Close it first before launching a new instance.",
+    };
+  }
+
+  try {
+    const instance = await launcher.launch({
+      executablePath: params.executablePath,
+      args: params.args,
+      url: params.url,
+      port: params.port || 9444,
+    });
+
+    return {
+      success: true,
+      port: instance.port,
+      pid: instance.pid,
+      message: `Browser launched successfully on port ${instance.port} with PID ${instance.pid}`,
+    };
+  } catch (error: any) {
+    return {
+      success: false,
+      port: params.port || 9444,
+      message: `Failed to launch browser: ${error.message}`,
+    };
+  }
+}
+
+/**
+ * Closes the running browser
+ */
+export async function closeBrowser(): Promise<void> {
+  if (browserLauncher) {
+    await browserLauncher.close();
+  }
+}
