@@ -5,6 +5,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { launchBrowser, closeBrowser } from "./tools/launch-browser.js";
 import { connectBrowser, disconnectBrowser } from "./tools/connect-browser.js";
+import { getConsoleLogs } from "./tools/console-logs.js";
 import { logger } from "./logger.js";
 import { parseArgs, setConfig, getConfig } from "./config.js";
 
@@ -97,6 +98,32 @@ function registerTools() {
         content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
         isError: !result.success,
       };
+    }
+  );
+
+  // Get Console Logs tool
+  mcpServer.registerTool(
+    "get_console_logs",
+    {
+      description: "Retrieves buffered console messages from the connected browser",
+      inputSchema: z.object({
+        clear: z.boolean().optional().describe("Whether to clear the buffer after retrieving (default: false)"),
+        filterLevel: z.string().optional().describe("Optional filter by message type (log, error, warning, info, debug, exception)"),
+      }),
+    },
+    async (params) => {
+      log.info(`Getting console logs (clear: ${params.clear ?? false}, filterLevel: ${params.filterLevel || "none"})`);
+      try {
+        const result = await getConsoleLogs(params);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      } catch (error: any) {
+        return {
+          content: [{ type: "text", text: JSON.stringify({ error: error.message }, null, 2) }],
+          isError: true,
+        };
+      }
     }
   );
 

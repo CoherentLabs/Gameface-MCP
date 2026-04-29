@@ -145,7 +145,7 @@ export class ConnectionManager extends EventEmitter {
    * @param filterLevel - Optional filter by message type
    */
   getConsoleMessages(clear: boolean = false, filterLevel?: string): ConsoleMessage[] {
-    let messages = [...this.consoleBuffer];
+    let messages = this.consoleBuffer;
 
     if (filterLevel) {
       messages = messages.filter((msg) => msg.type === filterLevel);
