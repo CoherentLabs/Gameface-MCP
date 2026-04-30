@@ -8,6 +8,7 @@ import { connectBrowser, disconnectBrowser } from "./tools/connect-browser.js";
 import { getConsoleLogs } from "./tools/console-logs.js";
 import { getDomSnapshot } from "./tools/dom-snapshot.js";
 import { getComputedStyles } from "./tools/computed-styles.js";
+import { interactElement } from "./tools/interact-element.js";
 import { logger } from "./logger.js";
 import { parseArgs, setConfig, getConfig } from "./config.js";
 
@@ -169,6 +170,37 @@ function registerTools() {
       log.info(`Getting computed styles for node ${params.nodeId} (properties: ${params.propertyNames?.length || "all"})`);
       try {
         const result = await getComputedStyles(params);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      } catch (error: any) {
+        return {
+          content: [{ type: "text", text: JSON.stringify({ error: error.message }, null, 2) }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // Interact Element tool
+  mcpServer.registerTool(
+    "interact_element",
+    {
+      description: "Interacts with a DOM element using various actions: click, type, hover, focus, scrollIntoView, or touch",
+      inputSchema: z.object({
+        nodeId: z.number().describe("The node ID of the element (obtained from get_dom_tree)"),
+        action: z.enum(["click", "type", "hover", "focus", "scrollIntoView", "touch"]).describe("The interaction action to perform"),
+        text: z.string().optional().describe("Text to type (required for 'type' action)"),
+        button: z.enum(["left", "right", "middle"]).optional().describe("Mouse button for click action (default: 'left')"),
+        clickCount: z.number().optional().describe("Number of clicks for click action (default: 1)"),
+        modifiers: z.number().optional().describe("Keyboard modifiers as bit field: Alt=1, Ctrl=2, Meta=4, Shift=8 (default: 0)"),
+        touchType: z.enum(["touchStart", "touchEnd", "touchMove", "touchCancel"]).optional().describe("Touch event type for touch action (default: 'touchStart')"),
+      }),
+    },
+    async (params) => {
+      log.info(`Interacting with element ${params.nodeId}: ${params.action}`);
+      try {
+        const result = await interactElement(params);
         return {
           content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
         };
