@@ -91,8 +91,6 @@ export interface InteractElementResult {
 // Screenshot Tool
 export interface TakeScreenshotParams {
   fullPage?: boolean;
-  format?: "png" | "jpeg";
-  quality?: number;
   clipArea?: {
     x: number;
     y: number;

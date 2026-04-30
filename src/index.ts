@@ -9,6 +9,7 @@ import { getConsoleLogs } from "./tools/console-logs.js";
 import { getDomSnapshot } from "./tools/dom-snapshot.js";
 import { getComputedStyles } from "./tools/computed-styles.js";
 import { interactElement } from "./tools/interact-element.js";
+import { takeScreenshot } from "./tools/take-screenshot.js";
 import { logger } from "./logger.js";
 import { parseArgs, setConfig, getConfig } from "./config.js";
 
@@ -201,6 +202,37 @@ function registerTools() {
       log.info(`Interacting with element ${params.nodeId}: ${params.action}`);
       try {
         const result = await interactElement(params);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      } catch (error: any) {
+        return {
+          content: [{ type: "text", text: JSON.stringify({ error: error.message }, null, 2) }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // Take Screenshot tool
+  mcpServer.registerTool(
+    "take_screenshot",
+    {
+      description: "Captures a screenshot of the current page with support for full page, viewport, and custom clipping",
+      inputSchema: z.object({
+        fullPage: z.boolean().optional().describe("Whether to capture the entire page (default: true)"),
+        clipArea: z.object({
+          x: z.number().describe("X coordinate of the clip area"),
+          y: z.number().describe("Y coordinate of the clip area"),
+          width: z.number().describe("Width of the clip area"),
+          height: z.number().describe("Height of the clip area"),
+        }).optional().describe("Optional clipping rectangle for custom screenshot area"),
+      }),
+    },
+    async (params) => {
+      log.info(`Taking screenshot (fullPage: ${params.fullPage ?? true})`);
+      try {
+        const result = await takeScreenshot(params);
         return {
           content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
         };
