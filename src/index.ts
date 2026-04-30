@@ -6,6 +6,7 @@ import { z } from "zod";
 import { launchBrowser, closeBrowser } from "./tools/launch-browser.js";
 import { connectBrowser, disconnectBrowser } from "./tools/connect-browser.js";
 import { getConsoleLogs } from "./tools/console-logs.js";
+import { getDomSnapshot } from "./tools/dom-snapshot.js";
 import { logger } from "./logger.js";
 import { parseArgs, setConfig, getConfig } from "./config.js";
 
@@ -115,6 +116,32 @@ function registerTools() {
       log.info(`Getting console logs (clear: ${params.clear ?? false}, filterLevel: ${params.filterLevel || "none"})`);
       try {
         const result = await getConsoleLogs(params);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      } catch (error: any) {
+        return {
+          content: [{ type: "text", text: JSON.stringify({ error: error.message }, null, 2) }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // Get DOM Tree tool
+  mcpServer.registerTool(
+    "get_dom_tree",
+    {
+      description: "Retrieves a snapshot of the DOM tree with node IDs, names, attributes, and child relationships",
+      inputSchema: z.object({
+        depth: z.number().optional().describe("Depth of the tree to retrieve (-1 for full depth, default: -1)"),
+        selector: z.string().optional().describe("CSS selector to filter the DOM tree to a specific subtree"),
+      }),
+    },
+    async (params) => {
+      log.info(`Getting DOM tree (depth: ${params.depth ?? -1}, selector: ${params.selector || "none"})`);
+      try {
+        const result = await getDomSnapshot(params);
         return {
           content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
         };

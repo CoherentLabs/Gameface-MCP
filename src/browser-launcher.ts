@@ -9,6 +9,7 @@ export interface BrowserLaunchOptions {
   args?: string[];
   url?: string;
   port?: number;
+  timeout?: number; // Timeout in milliseconds to wait for debugger ready (default: 20000)
 }
 
 export interface BrowserInstance {
@@ -34,7 +35,7 @@ export class BrowserLauncher extends EventEmitter {
       throw new Error("Browser is already running. Close it before launching a new instance.");
     }
 
-    const { executablePath, args = [], url, port = 9444 } = options;
+    const { executablePath, args = [], url, port = 9444, timeout = 20000 } = options;
     this.debuggingPort = port;
 
     // Build arguments for remote debugging
@@ -83,16 +84,14 @@ export class BrowserLauncher extends EventEmitter {
 
     if (this.browserProcess.stderr) {
       this.browserProcess.stderr.on("data", (data) => {
-        // Browser stderr can be noisy, only log errors
+        // Log all stderr output for debugging
         const message = data.toString().trim();
-        if (message.toLowerCase().includes("error")) {
-          log.warn(`[stderr] ${message}`);
-        }
+        log.debug(`[stderr] ${message}`);
       });
     }
 
     // Give browser time to start
-    await this.waitForDebuggerReady(port);
+    await this.waitForDebuggerReady(port, timeout);
 
     log.info(`Browser launched successfully with PID ${pid} on port ${port}`);
 
@@ -106,7 +105,7 @@ export class BrowserLauncher extends EventEmitter {
   /**
    * Waits for the browser's debugging port to be ready
    */
-  private async waitForDebuggerReady(port: number, timeout: number = 10000): Promise<void> {
+  private async waitForDebuggerReady(port: number, timeout: number = 20000): Promise<void> {
     const startTime = Date.now();
     
     while (Date.now() - startTime < timeout) {
