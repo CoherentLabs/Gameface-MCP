@@ -7,6 +7,7 @@ import { launchBrowser, closeBrowser } from "./tools/launch-browser.js";
 import { connectBrowser, disconnectBrowser } from "./tools/connect-browser.js";
 import { getConsoleLogs } from "./tools/console-logs.js";
 import { getDomSnapshot } from "./tools/dom-snapshot.js";
+import { getComputedStyles } from "./tools/computed-styles.js";
 import { logger } from "./logger.js";
 import { parseArgs, setConfig, getConfig } from "./config.js";
 
@@ -142,6 +143,32 @@ function registerTools() {
       log.info(`Getting DOM tree (depth: ${params.depth ?? -1}, selector: ${params.selector || "none"})`);
       try {
         const result = await getDomSnapshot(params);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      } catch (error: any) {
+        return {
+          content: [{ type: "text", text: JSON.stringify({ error: error.message }, null, 2) }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // Get Computed Styles tool
+  mcpServer.registerTool(
+    "get_computed_styles",
+    {
+      description: "Retrieves computed CSS styles for a specific element identified by its node ID",
+      inputSchema: z.object({
+        nodeId: z.number().describe("The node ID of the element (obtained from get_dom_tree)"),
+        propertyNames: z.array(z.string()).optional().describe("Optional array of specific CSS property names to retrieve (e.g., ['color', 'font-size']). If omitted, returns all computed styles."),
+      }),
+    },
+    async (params) => {
+      log.info(`Getting computed styles for node ${params.nodeId} (properties: ${params.propertyNames?.length || "all"})`);
+      try {
+        const result = await getComputedStyles(params);
         return {
           content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
         };
