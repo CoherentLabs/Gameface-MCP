@@ -10,6 +10,7 @@ import { getDomSnapshot } from "./tools/dom-snapshot.js";
 import { getComputedStyles } from "./tools/computed-styles.js";
 import { interactElement } from "./tools/interact-element.js";
 import { takeScreenshot } from "./tools/take-screenshot.js";
+import { searchDom } from "./tools/search-dom.js";
 import { logger } from "./logger.js";
 import { parseArgs, setConfig, getConfig } from "./config.js";
 
@@ -233,6 +234,33 @@ function registerTools() {
       log.info(`Taking screenshot (fullPage: ${params.fullPage ?? true})`);
       try {
         const result = await takeScreenshot(params);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      } catch (error: any) {
+        return {
+          content: [{ type: "text", text: JSON.stringify({ error: error.message }, null, 2) }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // Search DOM tool
+  mcpServer.registerTool(
+    "search_dom",
+    {
+      description: "Searches the DOM for nodes matching a text query. Searches within text content, attributes, and element names. Supports plain text and XPath queries.",
+      inputSchema: z.object({
+        query: z.string().describe("Search query string (plain text or XPath expression)"),
+        includeUserAgentShadowDOM: z.boolean().optional().describe("Whether to search within user-agent shadow DOM (default: false)"),
+        maxResults: z.number().optional().describe("Maximum number of results to return (default: 100)"),
+      }),
+    },
+    async (params) => {
+      log.info(`Searching DOM for query: "${params.query}"`);
+      try {
+        const result = await searchDom(params);
         return {
           content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
         };

@@ -103,3 +103,22 @@ export interface TakeScreenshotResult {
   data: string; // base64 encoded image
   format: string;
 }
+
+// Search DOM Tool
+export interface SearchDomParams {
+  query: string;
+  includeUserAgentShadowDOM?: boolean;
+  maxResults?: number;
+}
+
+export interface SearchDomNode {
+  nodeId: number;
+  nodeName: string;
+  nodeType: number;
+  attributes?: Record<string, string>;
+}
+
+export interface SearchDomResult {
+  resultCount: number;
+  nodes: SearchDomNode[];
+}
