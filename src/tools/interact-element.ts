@@ -7,6 +7,8 @@
 
 import { getConnectionManager } from "./connect-browser.js";
 import { getElementCoordinates, scrollIntoView } from "../utils/interaction-helper.js";
+import type { Client } from "chrome-remote-interface";
+
 import { createLogger } from "../logger.js";
 
 const log = createLogger("InteractElement");
@@ -96,7 +98,7 @@ export async function interactElement(
  * Performs a mouse click on an element.
  */
 async function performClick(
-  client: any,
+  client: Client,
   nodeId: number,
   button: string,
   clickCount: number,
@@ -120,7 +122,7 @@ async function performClick(
   });
 
   // Small delay for natural interaction
-  await new Promise((resolve) => setTimeout(resolve, 50));
+  //await new Promise((resolve) => setTimeout(resolve, 50));
 
   // Dispatch mouse released event
   await client.Input.dispatchMouseEvent({
@@ -132,13 +134,13 @@ async function performClick(
     modifiers,
   });
 
-  log.info(`Clicked at (${coords.centerX.toFixed(1)}, ${coords.centerY.toFixed(1)})`);
+  log.info(`Clicked button ${button} ${clickCount} time(s) at (${coords.centerX.toFixed(1)}, ${coords.centerY.toFixed(1)})`);
 
   return {
     success: true,
     action: "click",
     nodeId,
-    message: `Clicked element at (${coords.centerX.toFixed(1)}, ${coords.centerY.toFixed(1)})`,
+    message: `Clicked button ${button} at (${coords.centerX.toFixed(1)}, ${coords.centerY.toFixed(1)})`,
     coordinates: {
       x: coords.centerX,
       y: coords.centerY,
@@ -150,7 +152,7 @@ async function performClick(
  * Types text into an element (focuses first, then inserts text).
  */
 async function performType(
-  client: any,
+  client: Client,
   nodeId: number,
   text: string
 ): Promise<InteractElementResult> {
@@ -208,7 +210,7 @@ async function performHover(
  * Sets focus on an element.
  */
 async function performFocus(
-  client: any,
+  client: Client,
   nodeId: number
 ): Promise<InteractElementResult> {
   await client.DOM.focus({ nodeId });
@@ -227,7 +229,7 @@ async function performFocus(
  * Scrolls an element into view.
  */
 async function performScrollIntoView(
-  client: any,
+  client: Client,
   nodeId: number
 ): Promise<InteractElementResult> {
   await scrollIntoView(client, nodeId);
@@ -246,9 +248,9 @@ async function performScrollIntoView(
  * Dispatches a touch event on an element.
  */
 async function performTouch(
-  client: any,
+  client: Client,
   nodeId: number,
-  touchType: string,
+  touchType: "touchStart" | "touchEnd" | "touchMove" | "touchCancel",
   modifiers: number
 ): Promise<InteractElementResult> {
   // Get element coordinates
