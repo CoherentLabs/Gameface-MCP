@@ -31,18 +31,20 @@ export interface ConnectBrowserResult {
 }
 
 // Console Logs Tool
+export interface ConsoleMessage {
+  type: string;
+  args: any[];
+  timestamp: number;
+  stackTrace?: any;
+}
+
 export interface GetConsoleLogsParams {
   clear?: boolean;
   filterLevel?: string;
 }
 
 export interface GetConsoleLogsResult {
-  logs: Array<{
-    type: string;
-    args: any[];
-    timestamp: number;
-    stackTrace?: any;
-  }>;
+  logs: ConsoleMessage[];
 }
 
 // DOM Snapshot Tool

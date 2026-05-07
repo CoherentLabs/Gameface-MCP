@@ -1,6 +1,7 @@
 import CDP from "chrome-remote-interface";
 import { EventEmitter } from "events";
 import { createLogger } from "./logger.js";
+import { ConsoleMessage } from "./types.js";
 
 const log = createLogger("ConnectionManager");
 
@@ -10,20 +11,12 @@ export interface ConnectionOptions {
   target?: string | ((targets: CDP.Target[]) => CDP.Target);
 }
 
-export interface ConsoleMessage {
-  type: string;
-  args: any[];
-  timestamp: number;
-  stackTrace?: any;
-}
-
 /**
  * Manages persistent Chrome DevTools Protocol connection
  */
 export class ConnectionManager extends EventEmitter {
   private client: CDP.Client | null = null;
   private connected: boolean = false;
-  private consoleBuffer: ConsoleMessage[] = [];
   private connectionOptions: ConnectionOptions | null = null;
 
   /**
@@ -114,7 +107,6 @@ export class ConnectionManager extends EventEmitter {
         timestamp: params.timestamp,
         stackTrace: params.stackTrace,
       };
-      this.consoleBuffer.push(message);
       this.emit("console", message);
     });
 
@@ -126,7 +118,6 @@ export class ConnectionManager extends EventEmitter {
         timestamp: params.timestamp,
         stackTrace: params.exceptionDetails.stackTrace,
       };
-      this.consoleBuffer.push(message);
       this.emit("exception", message);
     });
 
@@ -137,25 +128,6 @@ export class ConnectionManager extends EventEmitter {
       this.client = null;
       this.emit("disconnected");
     });
-  }
-
-  /**
-   * Gets buffered console messages
-   * @param clear - Whether to clear the buffer after retrieving
-   * @param filterLevel - Optional filter by message type
-   */
-  getConsoleMessages(clear: boolean = false, filterLevel?: string): ConsoleMessage[] {
-    let messages = this.consoleBuffer;
-
-    if (filterLevel) {
-      messages = messages.filter((msg) => msg.type === filterLevel);
-    }
-
-    if (clear) {
-      this.consoleBuffer = [];
-    }
-
-    return messages;
   }
 
   /**
@@ -202,7 +174,6 @@ export class ConnectionManager extends EventEmitter {
     } finally {
       this.client = null;
       this.connected = false;
-      this.consoleBuffer = [];
     }
   }
 
