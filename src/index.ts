@@ -110,10 +110,10 @@ function registerTools() {
   mcpServer.registerTool(
     "get_console_logs",
     {
-      description: "Retrieves buffered console messages from the connected browser",
+      description: "Retrieves buffered console messages and Log domain entries from the connected browser. Includes Runtime console API calls (console.log, console.error, etc.) and browser Log entries (network errors, security warnings, deprecations, etc.)",
       inputSchema: z.object({
         clear: z.boolean().optional().describe("Whether to clear the buffer after retrieving (default: false)"),
-        filterLevel: z.string().optional().describe("Optional filter by message type (log, error, warning, info, debug, exception)"),
+        filterLevel: z.string().optional().describe("Optional filter by message type/level. For Runtime console messages: log, error, warning, info, debug, exception. For Log domain entries: verbose, info, warning, error"),
       }),
     },
     async (params) => {

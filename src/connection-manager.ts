@@ -1,7 +1,7 @@
 import CDP from "chrome-remote-interface";
 import { EventEmitter } from "events";
 import { createLogger } from "./logger.js";
-import { ConsoleMessage } from "./types.js";
+import { ConsoleMessage, LogEntry } from "./types.js";
 
 const log = createLogger("ConnectionManager");
 
@@ -68,7 +68,7 @@ export class ConnectionManager extends EventEmitter {
 
     log.info("Enabling CDP domains");
 
-    const { Page, Runtime, DOM, CSS } = this.client;
+    const { Page, Runtime, DOM, CSS, Log } = this.client;
 
     try {
       // Enable domains in sequence
@@ -83,6 +83,9 @@ export class ConnectionManager extends EventEmitter {
 
       await CSS.enable();
       log.info("CSS domain enabled");
+
+      await Log.enable();
+      log.info("Log domain enabled");
     } catch (error) {
       log.error(`Failed to enable domains: ${error}`);
       throw error;
@@ -97,7 +100,7 @@ export class ConnectionManager extends EventEmitter {
       return;
     }
 
-    const { Runtime } = this.client;
+    const { Runtime, Log } = this.client;
 
     // Console API called (console.log, console.error, etc.)
     Runtime.consoleAPICalled((params: any) => {
@@ -119,6 +122,12 @@ export class ConnectionManager extends EventEmitter {
         stackTrace: params.exceptionDetails.stackTrace,
       };
       this.emit("exception", message);
+    });
+
+    // Log domain entries (browser warnings, network errors, security issues, etc.)
+    Log.entryAdded((params: any) => {
+      const entry: LogEntry = params.entry;
+      this.emit("logEntry", entry);
     });
 
     // Handle disconnection

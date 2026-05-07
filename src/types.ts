@@ -38,13 +38,27 @@ export interface ConsoleMessage {
   stackTrace?: any;
 }
 
+export interface LogEntry {
+  source: string;
+  level: string;
+  text: string;
+  timestamp: number;
+  url?: string;
+  lineNumber?: number;
+  stackTrace?: any;
+  category?: string;
+  networkRequestId?: string;
+  workerId?: string;
+  args?: any[];
+}
+
 export interface GetConsoleLogsParams {
   clear?: boolean;
   filterLevel?: string;
 }
 
 export interface GetConsoleLogsResult {
-  logs: ConsoleMessage[];
+  logs: Array<ConsoleMessage | LogEntry>;
 }
 
 // DOM Snapshot Tool

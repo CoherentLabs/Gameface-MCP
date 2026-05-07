@@ -1,11 +1,11 @@
-import { GetConsoleLogsParams, GetConsoleLogsResult, ConsoleMessage } from "../types.js";
+import { GetConsoleLogsParams, GetConsoleLogsResult, ConsoleMessage, LogEntry } from "../types.js";
 import { getConnectionManager } from "./connect-browser.js";
 import { createLogger } from "../logger.js";
 
 const log = createLogger("ConsoleLogsTool");
 
-// Module-level buffer for console messages
-let consoleBuffer: ConsoleMessage[] = [];
+// Module-level buffer for console messages and log entries
+let consoleBuffer: Array<ConsoleMessage | LogEntry> = [];
 
 // Set up event listeners on the connection manager singleton
 const connectionManager = getConnectionManager();
@@ -18,6 +18,11 @@ connectionManager.on("console", (message: ConsoleMessage) => {
 // Listen for exceptions
 connectionManager.on("exception", (message: ConsoleMessage) => {
   consoleBuffer.push(message);
+});
+
+// Listen for Log domain entries
+connectionManager.on("logEntry", (entry: LogEntry) => {
+  consoleBuffer.push(entry);
 });
 
 // Clear buffer on disconnect
@@ -43,7 +48,15 @@ export async function getConsoleLogs(params: GetConsoleLogsParams): Promise<GetC
     // Filter messages if filterLevel is specified
     let messages = consoleBuffer;
     if (filterLevel) {
-      messages = messages.filter((msg) => msg.type === filterLevel);
+      messages = messages.filter((msg) => {
+        // Check ConsoleMessage.type or LogEntry.level
+        if ('type' in msg) {
+          return msg.type === filterLevel;
+        } else if ('level' in msg) {
+          return msg.level === filterLevel;
+        }
+        return false;
+      });
     }
 
     // Create a copy to return
