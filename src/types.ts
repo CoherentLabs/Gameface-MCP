@@ -153,3 +153,18 @@ export interface NavigateResult {
   errorText?: string;
 }
 
+// Eval JS Tool
+export interface EvalJsParams {
+  expression: string;
+  awaitPromise?: boolean;
+  returnByValue?: boolean;
+  timeout?: number;
+}
+
+export interface EvalJsResult {
+  success: boolean;
+  type: string;
+  value?: any;
+  description?: string;
+  exceptionDetails?: any;
+}

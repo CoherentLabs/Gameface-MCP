@@ -12,6 +12,7 @@ import { interactElement } from "./tools/interact-element.js";
 import { takeScreenshot } from "./tools/take-screenshot.js";
 import { searchDom } from "./tools/search-dom.js";
 import { navigate } from "./tools/navigate.js";
+import { evalJs } from "./tools/eval-js.js";
 import { logger } from "./logger.js";
 import { parseArgs, setConfig, getConfig } from "./config.js";
 
@@ -288,6 +289,35 @@ function registerTools() {
       log.info(`Navigating to: ${params.url}`);
       try {
         const result = await navigate(params);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          isError: !result.success,
+        };
+      } catch (error: any) {
+        return {
+          content: [{ type: "text", text: JSON.stringify({ error: error.message }, null, 2) }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // Eval JS tool
+  mcpServer.registerTool(
+    "eval_js",
+    {
+      description: "Executes arbitrary JavaScript code in the browser context using Runtime.evaluate. Returns the result value, type, and handles exceptions.",
+      inputSchema: z.object({
+        expression: z.string().describe("JavaScript expression or code to evaluate"),
+        awaitPromise: z.boolean().optional().describe("Whether to await promises (default: false)"),
+        returnByValue: z.boolean().optional().describe("Whether to return the result by value rather than by reference (default: true)"),
+        timeout: z.number().optional().describe("Optional timeout in milliseconds for long-running scripts"),
+      }),
+    },
+    async (params) => {
+      log.info(`Evaluating JavaScript expression`);
+      try {
+        const result = await evalJs(params);
         return {
           content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
           isError: !result.success,
