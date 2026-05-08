@@ -70,8 +70,9 @@ export async function takeScreenshot(params: TakeScreenshotParams): Promise<Take
     log.info(`Screenshot captured successfully (size: ${result.data.length} bytes)`);
 
     return {
+      type: "image",
       data: result.data,
-      format: "png",
+      mimeType: "image/png",
     };
   } catch (error: any) {
     log.error(`Failed to take screenshot: ${error.message}`);

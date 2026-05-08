@@ -116,8 +116,11 @@ export interface TakeScreenshotParams {
 }
 
 export interface TakeScreenshotResult {
+  type: "image";
   data: string; // base64 encoded image
-  format: string;
+  mimeType: "image/png";
+  annotations?: Record<string, any>;
+  _meta?: Record<string, any>;
 }
 
 // Search DOM Tool
