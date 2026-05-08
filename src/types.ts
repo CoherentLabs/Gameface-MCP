@@ -171,3 +171,15 @@ export interface EvalJsResult {
   description?: string;
   exceptionDetails?: any;
 }
+
+// Gameface Get Status Tool
+export interface GamefaceGetStatusParams {
+  // No parameters needed
+}
+
+export interface GamefaceGetStatusResult {
+  connected: boolean;
+  host?: string;
+  port?: number;
+  message: string;
+}

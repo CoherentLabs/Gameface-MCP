@@ -13,6 +13,7 @@ import { takeScreenshot } from "./tools/take-screenshot.js";
 import { searchDom } from "./tools/search-dom.js";
 import { navigate } from "./tools/navigate.js";
 import { evalJs } from "./tools/eval-js.js";
+import { gamefaceGetStatus } from "./tools/gameface-get-status.js";
 import { logger } from "./logger.js";
 import { parseArgs, setConfig, getConfig } from "./config.js";
 
@@ -321,6 +322,29 @@ function registerTools() {
         return {
           content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
           isError: !result.success,
+        };
+      } catch (error: any) {
+        return {
+          content: [{ type: "text", text: JSON.stringify({ error: error.message }, null, 2) }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // Gameface Get Status tool
+  mcpServer.registerTool(
+    "gameface_get_status",
+    {
+      description: "Returns the current browser connection status. Checks if there is an active connection to a browser.",
+      inputSchema: z.object({}),
+    },
+    async (params) => {
+      log.info(`Getting browser connection status`);
+      try {
+        const result = await gamefaceGetStatus(params);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
         };
       } catch (error: any) {
         return {
