@@ -4,6 +4,9 @@ import { ConnectBrowserParams, ConnectBrowserResult } from "../types.js";
 // Singleton connection manager instance
 let connectionManager: ConnectionManager | null = null;
 
+// Store last connection parameters for restart functionality
+let lastConnectParams: ConnectBrowserParams | null = null;
+
 /**
  * Gets or creates the connection manager instance
  */
@@ -57,6 +60,9 @@ export async function connectBrowser(params: ConnectBrowserParams): Promise<Conn
       target,
     });
 
+    // Store connection parameters for restart functionality
+    lastConnectParams = params;
+
     return {
       success: true,
       message: `Connected to browser at ${params.host || "localhost"}:${params.port}`,
@@ -76,4 +82,11 @@ export async function disconnectBrowser(): Promise<void> {
   if (connectionManager) {
     await connectionManager.disconnect();
   }
+}
+
+/**
+ * Gets the last connection parameters (for restart functionality)
+ */
+export function getLastConnectParams(): ConnectBrowserParams | null {
+  return lastConnectParams;
 }

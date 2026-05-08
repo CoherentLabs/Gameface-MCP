@@ -4,6 +4,9 @@ import { LaunchBrowserParams, LaunchBrowserResult } from "../types.js";
 // Singleton browser launcher instance
 let browserLauncher: BrowserLauncher | null = null;
 
+// Store last launch parameters for restart functionality
+let lastLaunchParams: LaunchBrowserParams | null = null;
+
 /**
  * Gets or creates the browser launcher instance
  */
@@ -37,6 +40,9 @@ export async function launchBrowser(params: LaunchBrowserParams): Promise<Launch
       port: params.port || 9444,
     });
 
+    // Store launch parameters for restart functionality
+    lastLaunchParams = params;
+
     return {
       success: true,
       port: instance.port,
@@ -59,4 +65,11 @@ export async function closeBrowser(): Promise<void> {
   if (browserLauncher) {
     await browserLauncher.close();
   }
+}
+
+/**
+ * Gets the last launch parameters (for restart functionality)
+ */
+export function getLastLaunchParams(): LaunchBrowserParams | null {
+  return lastLaunchParams;
 }

@@ -183,3 +183,15 @@ export interface GamefaceGetStatusResult {
   port?: number;
   message: string;
 }
+
+// Gameface Restart Tool
+export interface GamefaceRestartParams {
+  // No parameters needed - uses stored launch/connection parameters
+}
+
+export interface GamefaceRestartResult {
+  success: boolean;
+  message: string;
+  port?: number;
+  pid?: number;
+}

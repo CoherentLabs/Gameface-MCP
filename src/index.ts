@@ -14,6 +14,7 @@ import { searchDom } from "./tools/search-dom.js";
 import { navigate } from "./tools/navigate.js";
 import { evalJs } from "./tools/eval-js.js";
 import { gamefaceGetStatus } from "./tools/gameface-get-status.js";
+import { gamefaceRestart } from "./tools/gameface-restart.js";
 import { logger } from "./logger.js";
 import { parseArgs, setConfig, getConfig } from "./config.js";
 
@@ -345,6 +346,30 @@ function registerTools() {
         const result = await gamefaceGetStatus(params);
         return {
           content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      } catch (error: any) {
+        return {
+          content: [{ type: "text", text: JSON.stringify({ error: error.message }, null, 2) }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // Gameface Restart tool
+  mcpServer.registerTool(
+    "gameface_restart",
+    {
+      description: "Restarts the launched browser by closing it, disconnecting, relaunching with the same parameters, and reconnecting. Requires a browser to have been previously launched and connected.",
+      inputSchema: z.object({}),
+    },
+    async (params) => {
+      log.info(`Restarting browser`);
+      try {
+        const result = await gamefaceRestart(params);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          isError: !result.success,
         };
       } catch (error: any) {
         return {
