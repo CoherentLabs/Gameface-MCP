@@ -138,3 +138,18 @@ export interface SearchDomResult {
   resultCount: number;
   nodes: SearchDomNode[];
 }
+
+// Navigate Tool
+export interface NavigateParams {
+  url: string;
+  waitUntil?: "documentUpdated";
+}
+
+export interface NavigateResult {
+  success: boolean;
+  url: string;
+  frameId: string;
+  loaderId?: string;
+  errorText?: string;
+}
+

@@ -100,7 +100,12 @@ export class ConnectionManager extends EventEmitter {
       return;
     }
 
-    const { Runtime, Log } = this.client;
+    const { Runtime, Log, DOM } = this.client;
+
+    DOM.documentUpdated(() => {
+      log.debug("Document updated");
+      this.emit("documentUpdated");
+    });
 
     // Console API called (console.log, console.error, etc.)
     Runtime.consoleAPICalled((params: any) => {

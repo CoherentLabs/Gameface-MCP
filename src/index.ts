@@ -11,6 +11,7 @@ import { getComputedStyles } from "./tools/computed-styles.js";
 import { interactElement } from "./tools/interact-element.js";
 import { takeScreenshot } from "./tools/take-screenshot.js";
 import { searchDom } from "./tools/search-dom.js";
+import { navigate } from "./tools/navigate.js";
 import { logger } from "./logger.js";
 import { parseArgs, setConfig, getConfig } from "./config.js";
 
@@ -263,6 +264,33 @@ function registerTools() {
         const result = await searchDom(params);
         return {
           content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      } catch (error: any) {
+        return {
+          content: [{ type: "text", text: JSON.stringify({ error: error.message }, null, 2) }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // Navigate tool
+  mcpServer.registerTool(
+    "navigate",
+    {
+      description: "Navigates to a different URL in the browser using Page.navigate",
+      inputSchema: z.object({
+        url: z.string().describe("The URL to navigate to"),
+        waitUntil: z.enum(["documentUpdated"]).optional().describe("Optional wait condition: documentUpdated (wait for document update)"),
+      }),
+    },
+    async (params) => {
+      log.info(`Navigating to: ${params.url}`);
+      try {
+        const result = await navigate(params);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          isError: !result.success,
         };
       } catch (error: any) {
         return {
