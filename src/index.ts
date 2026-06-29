@@ -15,6 +15,7 @@ import { navigate } from "./tools/navigate.js";
 import { evalJs } from "./tools/eval-js.js";
 import { gamefaceGetStatus } from "./tools/gameface-get-status.js";
 import { gamefaceRestart } from "./tools/gameface-restart.js";
+import { getCodeInstructionsResource } from "./resources/code-instructions.js";
 import { logger } from "./logger.js";
 import { parseArgs, setConfig, getConfig } from "./config.js";
 
@@ -27,6 +28,7 @@ const mcpServer = new McpServer(
   {
     capabilities: {
       tools: {},
+      resources: {},
     },
   }
 );
@@ -383,6 +385,21 @@ function registerTools() {
   log.info("Tools registered successfully");
 }
 
+// Register MCP resources
+function registerResources() {
+  mcpServer.registerResource(
+    "code-instructions",
+    "gameface://code-instructions",
+    {
+      description: "Gameface UI coding constraints and negative rules for HTML/CSS/JS generation",
+      mimeType: "text/markdown",
+    },
+    getCodeInstructionsResource
+  );
+
+  log.info("Resources registered successfully");
+}
+
 // Start server with stdio transport
 async function main() {
   // Parse command-line arguments (skip first two: node and script path)
@@ -400,8 +417,9 @@ async function main() {
   log.info(`Default port: ${config.port}`);
   log.info(`Default host: ${config.cdpHost}`);
   
-  // Register all tools
+  // Register all tools and resources
   registerTools();
+  registerResources();
   
   const transport = new StdioServerTransport();
   await mcpServer.connect(transport);
