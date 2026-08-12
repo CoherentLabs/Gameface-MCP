@@ -30,22 +30,58 @@ export class ConnectionManager extends EventEmitter {
 
     this.connectionOptions = options;
 
-    log.info(`Connecting to Chrome DevTools Protocol at ${options.host || "localhost"}:${options.port}`);
+    const host = options.host || "localhost";
+    const port = options.port;
+
+    log.info(`Connecting to Chrome DevTools Protocol at ${host}:${port}`);
 
     try {
+      // Gameface's CDP HTTP endpoint (/json, /json/list) echoes the request
+      // path into webSocketDebuggerUrl (e.g. "ws://host:port/json/list/devtools/page/0"
+      // instead of ".../devtools/page/0"). chrome-remote-interface's target
+      // resolution trusts that field verbatim for string-id, object, and
+      // function targets, so it picks a broken URL against a real Gameface
+      // Player. Resolve the target ourselves and pass a relative path
+      // ("/devtools/page/<id>") instead - chrome-remote-interface turns that
+      // into a raw WS URL without re-fetching/trusting the broken field.
+      let target: string | undefined = typeof options.target === "string" ? options.target : undefined;
+
+      if (typeof options.target === "function") {
+        const res = await fetch(`http://${host}:${port}/json/list`);
+        const targets: CDP.Target[] = await res.json();
+        const chosen = options.target(targets);
+        target = `/devtools/page/${chosen.id}`;
+      }
+
       // Connect to CDP
       this.client = await CDP({
-        host: options.host || "localhost",
-        port: options.port,
+        host,
+        port,
         local: true,
-        target: options.target,
+        target,
       });
 
-      this.connected = true;
       log.info("Connected successfully");
 
-      // Enable required domains
+      // Enable required domains (Runtime is needed for the identity check below)
       await this.enableDomains();
+
+      // Only Gameface Player is allowed here - refuse anything else, e.g. a
+      // plain Chrome/Chromium tab someone started outside launch_browser and
+      // pointed this at directly. Gameface's navigator.userAgent reports
+      // "Cohtml/<version> (Windows; Native) cohtml/...".
+      const uaResult = await this.client.Runtime.evaluate({ expression: "navigator.userAgent", returnByValue: true });
+      const userAgent = String(uaResult.result?.value || "");
+      if (!userAgent.toLowerCase().includes("cohtml")) {
+        log.error(`Refusing non-Gameface target (navigator.userAgent: "${userAgent}")`);
+        await this.client.close();
+        this.client = null;
+        throw new Error(
+          `Target at ${host}:${port} does not appear to be Gameface Player (navigator.userAgent: "${userAgent}", expected it to mention "cohtml").`
+        );
+      }
+
+      this.connected = true;
 
       // Set up event handlers
       this.setupEventHandlers();

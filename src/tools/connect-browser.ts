@@ -1,5 +1,8 @@
 import { ConnectionManager } from "../connection-manager.js";
 import { ConnectBrowserParams, ConnectBrowserResult } from "../types.js";
+import { createLogger } from "../logger.js";
+
+const log = createLogger("ConnectBrowser");
 
 // Singleton connection manager instance
 let connectionManager: ConnectionManager | null = null;
@@ -23,12 +26,22 @@ export function getConnectionManager(): ConnectionManager {
 export async function connectBrowser(params: ConnectBrowserParams): Promise<ConnectBrowserResult> {
   const manager = getConnectionManager();
 
-  // Check if already connected
+  // Check if already connected - but don't trust the cached flag blindly.
+  // If Player was closed manually (not via disconnect_browser/gameface_restart),
+  // the underlying WebSocket may not report a clean "disconnect" for a long
+  // time (or ever, if nothing was actively using it), leaving `connected`
+  // stuck true against a connection that's actually dead. Actively verify
+  // before refusing to reconnect, and self-heal if it's stale.
   if (manager.isConnected()) {
-    return {
-      success: false,
-      message: "Already connected to a browser. Disconnect first before connecting again.",
-    };
+    const alive = await manager.healthCheck();
+    if (alive) {
+      return {
+        success: false,
+        message: "Already connected to a browser. Disconnect first before connecting again.",
+      };
+    }
+    log.warn("Cached connection state was stale (health check failed) - resetting and reconnecting");
+    await manager.disconnect();
   }
 
   try {

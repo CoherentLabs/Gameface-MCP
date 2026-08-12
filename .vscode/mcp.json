@@ -1,8 +1,10 @@
 {
-  "servers": {
-    "gameface_local": {
-      "command": "node",
-      "args": ["build/index.js", "--browser-executable", "FILL-WITH-PATH-TO\\Player.exe"]
+    "servers": {
+        "gameface_local": {
+            "command": "node",
+            "args": [
+                "build/index.js"
+            ]
+        }
     }
-  }
 }

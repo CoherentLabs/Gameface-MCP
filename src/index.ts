@@ -15,7 +15,12 @@ import { navigate } from "./tools/navigate.js";
 import { evalJs } from "./tools/eval-js.js";
 import { gamefaceGetStatus } from "./tools/gameface-get-status.js";
 import { gamefaceRestart } from "./tools/gameface-restart.js";
+import { assertTextFits, assertNoOverlap, assertWithinParent } from "./tools/assertions.js";
+import { searchGamefaceDocs } from "./tools/search-gameface-docs.js";
+import { perfLint } from "./tools/perf-lint.js";
+import { perfMeasure } from "./tools/perf-measure.js";
 import { getCodeInstructionsResource } from "./resources/code-instructions.js";
+import { listRagResources, getRagDocResource, getRagIndexResource } from "./resources/rag-docs.js";
 import { logger } from "./logger.js";
 import { parseArgs, setConfig, getConfig } from "./config.js";
 
@@ -30,6 +35,14 @@ const mcpServer = new McpServer(
       tools: {},
       resources: {},
     },
+    instructions:
+      "Before writing or modifying Gameface UI markup, CSS, or JS, call the " +
+      "search_gameface_docs tool with a query describing what you're building " +
+      "(e.g. 'flexbox layout', 'text overflow', 'localization RTL') to retrieve " +
+      "relevant guidance from the Gameface documentation corpus, and read the " +
+      "gameface://code-instructions resource for hard engine constraints. After " +
+      "making layout changes, use assert_text_fits, assert_no_overlap, and " +
+      "assert_within_parent to verify the result before considering the change done.",
   }
 );
 
@@ -382,11 +395,173 @@ function registerTools() {
     }
   );
 
+  // Assert Text Fits tool
+  mcpServer.registerTool(
+    "assert_text_fits",
+    {
+      description: "Checks whether an element's rendered content overflows its own box (scrollWidth/scrollHeight vs clientWidth/clientHeight). Read-only diagnostic - does not modify the page. Use this after making layout/text changes to verify text isn't clipped or overflowing.",
+      inputSchema: z.object({
+        nodeId: z.number().describe("The node ID of the element to check (obtained from get_dom_tree or search_dom)"),
+      }),
+    },
+    async (params) => {
+      log.info(`Asserting text fits for node ${params.nodeId}`);
+      try {
+        const result = await assertTextFits(params);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          isError: !result.fits,
+        };
+      } catch (error: any) {
+        return {
+          content: [{ type: "text", text: JSON.stringify({ error: error.message }, null, 2) }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // Assert No Overlap tool
+  mcpServer.registerTool(
+    "assert_no_overlap",
+    {
+      description: "Checks whether two elements' rendered boxes (getBoundingClientRect) intersect. Read-only diagnostic - does not modify the page. Use this to catch overlapping UI elements after layout changes.",
+      inputSchema: z.object({
+        nodeIdA: z.number().describe("The node ID of the first element (obtained from get_dom_tree or search_dom)"),
+        nodeIdB: z.number().describe("The node ID of the second element (obtained from get_dom_tree or search_dom)"),
+      }),
+    },
+    async (params) => {
+      log.info(`Asserting no overlap between node ${params.nodeIdA} and node ${params.nodeIdB}`);
+      try {
+        const result = await assertNoOverlap(params);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          isError: result.overlaps,
+        };
+      } catch (error: any) {
+        return {
+          content: [{ type: "text", text: JSON.stringify({ error: error.message }, null, 2) }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // Assert Within Parent tool
+  mcpServer.registerTool(
+    "assert_within_parent",
+    {
+      description: "Checks whether an element's rendered box is fully contained within a container's box. Defaults to the element's immediate parent; pass containerNodeId to check against a specific ancestor instead, or useViewport to check against the viewport. Read-only diagnostic - does not modify the page.",
+      inputSchema: z.object({
+        nodeId: z.number().describe("The node ID of the element to check (obtained from get_dom_tree or search_dom)"),
+        containerNodeId: z.number().optional().describe("Node ID of the container/ancestor to check against (default: element's immediate parent). Ignored if useViewport is true."),
+        useViewport: z.boolean().optional().describe("If true, checks the element against the viewport bounds instead of a DOM container (default: false)"),
+      }),
+    },
+    async (params) => {
+      log.info(`Asserting node ${params.nodeId} is within parent`);
+      try {
+        const result = await assertWithinParent(params);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          isError: !result.within,
+        };
+      } catch (error: any) {
+        return {
+          content: [{ type: "text", text: JSON.stringify({ error: error.message }, null, 2) }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // Search Gameface Docs tool
+  mcpServer.registerTool(
+    "search_gameface_docs",
+    {
+      description: "Searches the Gameface RAG documentation corpus (layout, scalability, interactions, graphics, fonts, performance, GamefaceUI components, live views, localization, custom effects, accessibility, animations, tooling) for chunks relevant to a query. Call this before writing or modifying Gameface UI code to pull in the specific constraints/patterns that apply, instead of guessing from general web knowledge.",
+      inputSchema: z.object({
+        query: z.string().describe("Search query (keywords or a short phrase), e.g. 'flexbox layout', 'text overflow', 'localization RTL', 'button component props'"),
+        topic: z.string().optional().describe("Optional filter: restrict results to chunks whose [TOPIC] tag contains this substring (e.g. 'layout', 'performance', 'gameface-ui-components')"),
+        severity: z.string().optional().describe("Optional filter: restrict results to chunks with this exact [SEVERITY] tag (e.g. 'critical', 'high')"),
+        maxResults: z.number().optional().describe("Maximum number of results to return (default: 5)"),
+      }),
+    },
+    async (params) => {
+      log.info(`Searching Gameface docs for: "${params.query}"`);
+      try {
+        const result = await searchGamefaceDocs(params);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      } catch (error: any) {
+        return {
+          content: [{ type: "text", text: JSON.stringify({ error: error.message }, null, 2) }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // Perf Lint tool
+  mcpServer.registerTool(
+    "perf_lint",
+    {
+      description: "Static, deterministic structural performance check. Walks the rendered DOM/CSSOM tree via CDP (no gf.executeScript bridge exists in this codebase or in the Gameface docs; this uses the same Runtime.evaluate pattern as eval_js/get_dom_tree) and flags shapes the Gameface documentation names as expensive: align-items:stretch on flex containers, unsized flex items, display:simple children missing position:absolute/fixed, inline data:/SVG assets that break Instaload, :root-scoped custom properties, and opacity-with-children (coh-simple-opacity candidates). No timing involved, nothing invented beyond what prompts/rag/ documents. 15s timeout; returns a structured error instead of hanging.",
+      inputSchema: z.object({
+        selector: z.string().optional().describe("Optional CSS selector to scope the check to a subtree (default: entire document)"),
+      }),
+    },
+    async (params) => {
+      log.info(`Running perf lint${params.selector ? ` (selector: ${params.selector})` : ""}`);
+      try {
+        const result = await perfLint(params);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          isError: !result.success,
+        };
+      } catch (error: any) {
+        return {
+          content: [{ type: "text", text: JSON.stringify({ error: error.message }, null, 2) }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // Perf Measure tool
+  mcpServer.registerTool(
+    "perf_measure",
+    {
+      description: "Injects the fixed frame-timing scenario from tools/perf/calibrate.js into whatever is currently loaded on the live connection, and returns p50/p95/p99 (600 frames, first 120 discarded as warmup by default - same as the recorded noise floor in tools/perf/noise-floor.md, so results are directly comparable). Does not boot or resize the Player; reports the live resolution and flags whether it matches the 1920x1080 baseline. 15s timeout; returns a structured error/timeout instead of hanging if the page can't complete the scenario in time.",
+      inputSchema: z.object({
+        frames: z.number().optional().describe("Total frames to collect (default: 600, matching the recorded noise floor)"),
+        warmup: z.number().optional().describe("Frames to discard from the start before computing percentiles (default: 120, matching the recorded noise floor)"),
+      }),
+    },
+    async (params) => {
+      log.info(`Running perf measure (frames: ${params.frames ?? 600}, warmup: ${params.warmup ?? 120})`);
+      try {
+        const result = await perfMeasure(params);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          isError: !result.success,
+        };
+      } catch (error: any) {
+        return {
+          content: [{ type: "text", text: JSON.stringify({ error: error.message }, null, 2) }],
+          isError: true,
+        };
+      }
+    }
+  );
+
   log.info("Tools registered successfully");
 }
 
 // Register MCP resources
-function registerResources() {
+async function registerResources() {
   mcpServer.registerResource(
     "code-instructions",
     "gameface://code-instructions",
@@ -397,7 +572,34 @@ function registerResources() {
     getCodeInstructionsResource
   );
 
-  log.info("Resources registered successfully");
+  // Gameface RAG documentation - one resource per topic file, plus an index.
+  // Prefer the search_gameface_docs tool for targeted retrieval; these are here
+  // for browsing/reading a topic in full.
+  const ragInfos = await listRagResources();
+
+  mcpServer.registerResource(
+    "gameface-rag-index",
+    "gameface://rag/index",
+    {
+      description: "Index of Gameface RAG documentation topics, with guidance to prefer search_gameface_docs for targeted retrieval",
+      mimeType: "text/markdown",
+    },
+    () => getRagIndexResource(ragInfos)
+  );
+
+  for (const info of ragInfos) {
+    mcpServer.registerResource(
+      `gameface-rag-${info.file}`,
+      info.uri,
+      {
+        description: `Gameface RAG documentation: ${info.title}`,
+        mimeType: "text/markdown",
+      },
+      () => getRagDocResource(info.uri, info.file)
+    );
+  }
+
+  log.info(`Resources registered successfully (${ragInfos.length} RAG doc files + index)`);
 }
 
 // Start server with stdio transport
@@ -419,7 +621,7 @@ async function main() {
   
   // Register all tools and resources
   registerTools();
-  registerResources();
+  await registerResources();
   
   const transport = new StdioServerTransport();
   await mcpServer.connect(transport);

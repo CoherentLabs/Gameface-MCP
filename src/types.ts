@@ -195,3 +195,140 @@ export interface GamefaceRestartResult {
   port?: number;
   pid?: number;
 }
+
+// Shared geometry type for assertion tools
+export interface Rect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+}
+
+// Assert Text Fits Tool
+export interface AssertTextFitsParams {
+  nodeId: number;
+}
+
+export interface AssertTextFitsResult {
+  success: boolean;
+  fits: boolean;
+  overflowX: number;
+  overflowY: number;
+  measurements: {
+    scrollWidth: number;
+    scrollHeight: number;
+    clientWidth: number;
+    clientHeight: number;
+  };
+  message: string;
+}
+
+// Assert No Overlap Tool
+export interface AssertNoOverlapParams {
+  nodeIdA: number;
+  nodeIdB: number;
+}
+
+export interface AssertNoOverlapResult {
+  success: boolean;
+  overlaps: boolean;
+  rectA: Rect;
+  rectB: Rect;
+  overlapRect?: Rect;
+  message: string;
+}
+
+// Search Gameface Docs Tool
+export interface SearchGamefaceDocsParams {
+  query: string;
+  topic?: string;
+  severity?: string;
+  maxResults?: number;
+}
+
+export interface GamefaceDocResult {
+  file: string;
+  topic?: string;
+  type?: string;
+  severity?: string;
+  source?: string;
+  heading: string;
+  content: string;
+  score: number;
+}
+
+export interface SearchGamefaceDocsResult {
+  resultCount: number;
+  results: GamefaceDocResult[];
+}
+
+// Assert Within Parent Tool
+export interface AssertWithinParentParams {
+  nodeId: number;
+  containerNodeId?: number;
+  useViewport?: boolean;
+}
+
+export interface AssertWithinParentResult {
+  success: boolean;
+  within: boolean;
+  elementRect: Rect;
+  containerRect: Rect;
+  overflow: {
+    left: number;
+    right: number;
+    top: number;
+    bottom: number;
+  };
+  message: string;
+}
+
+// Perf Lint Tool
+export interface PerfLintParams {
+  selector?: string;
+}
+
+export interface PerfLintViolation {
+  rule: string;
+  selector: string;
+  detail: string;
+}
+
+export interface PerfLintResult {
+  success: boolean;
+  violations: PerfLintViolation[];
+  elementsScanned: number;
+  error?: string;
+}
+
+// Perf Measure Tool
+export interface PerfMeasureParams {
+  frames?: number;
+  warmup?: number;
+}
+
+export interface PerfMeasureResult {
+  success: boolean;
+  timedOut?: boolean;
+  error?: string;
+  p50?: number;
+  p95?: number;
+  p99?: number;
+  sampleCount?: number;
+  resolution?: { width: number; height: number };
+  resolutionMatchesBaseline?: boolean;
+  noiseFloor?: {
+    p50: { min: number; max: number };
+    p95: { min: number; max: number };
+    p99: { min: number; max: number };
+  };
+  withinNoiseFloor?: {
+    p50: boolean;
+    p95: boolean;
+    p99: boolean;
+  };
+}
