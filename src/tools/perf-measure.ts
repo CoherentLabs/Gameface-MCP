@@ -36,6 +36,7 @@ const BASELINE_RESOLUTION = { width: 1920, height: 1080 };
 
 interface NoiseFloorBaseline {
   resolution: { width: number; height: number };
+  cohtmlVersion?: string;
   frames: number;
   warmup: number;
   spread: {
@@ -116,6 +117,14 @@ async function runMeasurement(frames: number, warmup: number): Promise<PerfMeasu
     resolution.width === (baseline?.resolution.width ?? BASELINE_RESOLUTION.width) &&
     resolution.height === (baseline?.resolution.height ?? BASELINE_RESOLUTION.height);
 
+  const cohtmlVersion = manager.getCohtmlVersion() ?? undefined;
+  // Frame timing characteristics can differ across Cohtml versions same as
+  // resolution can, so a mismatch here is reported the same way - informational,
+  // not a failure, since the caller may be intentionally testing an older/newer
+  // build than the one noise-floor.md was calibrated against.
+  const cohtmlVersionMatchesBaseline =
+    baseline?.cohtmlVersion !== undefined && cohtmlVersion !== undefined ? cohtmlVersion === baseline.cohtmlVersion : undefined;
+
   const result: PerfMeasureResult = {
     success: true,
     p50,
@@ -124,6 +133,8 @@ async function runMeasurement(frames: number, warmup: number): Promise<PerfMeasu
     sampleCount: measured.length,
     resolution,
     resolutionMatchesBaseline,
+    cohtmlVersion,
+    cohtmlVersionMatchesBaseline,
   };
 
   if (baseline) {

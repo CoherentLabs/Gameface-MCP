@@ -1,6 +1,7 @@
 import { spawn, ChildProcess } from "child_process";
 import { EventEmitter } from "events";
 import { createLogger } from "./logger.js";
+import { compareCohtmlVersions, extractCohtmlVersion, MIN_RECOMMENDED_COHTML_VERSION } from "./connection-manager.js";
 
 const log = createLogger("BrowserLauncher");
 
@@ -16,6 +17,8 @@ export interface BrowserInstance {
   process: ChildProcess;
   port: number;
   pid: number | undefined;
+  cohtmlVersion?: string;
+  versionWarning?: string;
 }
 
 /**
@@ -140,10 +143,22 @@ export class BrowserLauncher extends EventEmitter {
 
     log.info(`Browser launched successfully with PID ${pid} on port ${port}`);
 
+    const cohtmlVersion = extractCohtmlVersion(browserId) ?? undefined;
+    const versionWarning =
+      cohtmlVersion && compareCohtmlVersions(cohtmlVersion, MIN_RECOMMENDED_COHTML_VERSION) < 0
+        ? `Cohtml ${cohtmlVersion} is below the recommended floor ${MIN_RECOMMENDED_COHTML_VERSION} - some CDP commands this server depends on may behave differently or be unavailable.`
+        : undefined;
+
+    if (versionWarning) {
+      log.warn(versionWarning);
+    }
+
     return {
       process: this.browserProcess,
       port,
       pid,
+      cohtmlVersion,
+      versionWarning,
     };
   }
 

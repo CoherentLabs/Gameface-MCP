@@ -48,6 +48,8 @@ export async function launchBrowser(params: LaunchBrowserParams): Promise<Launch
       port: instance.port,
       pid: instance.pid,
       message: `Browser launched successfully on port ${instance.port} with PID ${instance.pid}`,
+      cohtmlVersion: instance.cohtmlVersion,
+      versionWarning: instance.versionWarning,
     };
   } catch (error: any) {
     return {

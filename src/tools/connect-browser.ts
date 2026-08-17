@@ -1,4 +1,4 @@
-import { ConnectionManager } from "../connection-manager.js";
+import { ConnectionManager, compareCohtmlVersions, MIN_RECOMMENDED_COHTML_VERSION } from "../connection-manager.js";
 import { ConnectBrowserParams, ConnectBrowserResult } from "../types.js";
 import { createLogger } from "../logger.js";
 
@@ -76,9 +76,17 @@ export async function connectBrowser(params: ConnectBrowserParams): Promise<Conn
     // Store connection parameters for restart functionality
     lastConnectParams = params;
 
+    const cohtmlVersion = manager.getCohtmlVersion();
+    const versionWarning =
+      cohtmlVersion && compareCohtmlVersions(cohtmlVersion, MIN_RECOMMENDED_COHTML_VERSION) < 0
+        ? `Cohtml ${cohtmlVersion} is below the recommended floor ${MIN_RECOMMENDED_COHTML_VERSION} - some CDP commands this server depends on may behave differently or be unavailable.`
+        : undefined;
+
     return {
       success: true,
       message: `Connected to browser at ${params.host || "localhost"}:${params.port}`,
+      cohtmlVersion: cohtmlVersion ?? undefined,
+      versionWarning,
     };
   } catch (error: any) {
     return {

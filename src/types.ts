@@ -15,6 +15,8 @@ export interface LaunchBrowserResult {
   port: number;
   pid?: number;
   message: string;
+  cohtmlVersion?: string;
+  versionWarning?: string;
 }
 
 // Connect Browser Tool
@@ -28,6 +30,8 @@ export interface ConnectBrowserResult {
   success: boolean;
   message: string;
   targetInfo?: any;
+  cohtmlVersion?: string;
+  versionWarning?: string;
 }
 
 // Console Logs Tool
@@ -182,6 +186,8 @@ export interface GamefaceGetStatusResult {
   host?: string;
   port?: number;
   message: string;
+  cohtmlVersion?: string;
+  versionWarning?: string;
 }
 
 // Gameface Restart Tool
@@ -321,6 +327,8 @@ export interface PerfMeasureResult {
   sampleCount?: number;
   resolution?: { width: number; height: number };
   resolutionMatchesBaseline?: boolean;
+  cohtmlVersion?: string;
+  cohtmlVersionMatchesBaseline?: boolean;
   noiseFloor?: {
     p50: { min: number; max: number };
     p95: { min: number; max: number };

@@ -40,12 +40,90 @@ function requireConnectedClient(): Client {
   return client;
 }
 
-async function resolveNodeObjectId(client: Client, nodeId: number): Promise<string> {
-  const resolved = await client.DOM.resolveNode({ nodeId });
-  if (!resolved || !resolved.object || !resolved.object.objectId) {
-    throw new Error(`Failed to resolve node ${nodeId} to a JS object. It may not exist or may not be an element.`);
+interface ElementHandle {
+  objectId: string;
+  rect: Rect;
+}
+
+/**
+ * How long to wait before retrying a mismatched resolution. Gameface runs layout
+ * on a separate thread and settles geometry roughly one frame behind a mutation
+ * (documented elsewhere in this engine, and confirmed for DOM.getBoxModel
+ * specifically: reading it immediately after a resize can still report the
+ * pre-mutation size for a frame). 50ms comfortably covers a few frames at 60Hz.
+ */
+const STALE_RETRY_DELAY_MS = 50;
+
+/**
+ * Resolves a CDP nodeId to a live JS object handle plus its rendered rect.
+ *
+ * DOM.resolveNode returns an empty `{}` (no error, just nothing usable) against
+ * this Gameface build - verified, not a timing issue: DOM-domain WRITE commands
+ * (DOM.setAttributeValue) silently no-op here too, while plain JS mutations via
+ * Runtime.evaluate sync correctly and immediately in both directions. So there is
+ * no reliable nodeId -> JS-object bridge through the DOM domain at all here.
+ *
+ * The fix: DOM.getBoxModel({nodeId}) DOES work (confirmed), so get the element's
+ * rendered box that way, then pick it up on the JS side via
+ * document.elementFromPoint at its center - the one confirmed-working bridge.
+ * elementFromPoint returns whichever element is topmost at that point, which
+ * could be a different, overlapping element (e.g. a child covering the target's
+ * center) rather than the node getBoxModel described - so the resolved element's
+ * own rect is verified against the expected one before it's trusted. A mismatch
+ * is retried once after a short delay before being treated as a real "wrong
+ * element" case, because DOM.getBoxModel itself can report stale (pre-mutation)
+ * geometry for a frame or two right after a change - the same mismatch a genuine
+ * overlapping element would produce, but one that resolves on its own shortly.
+ */
+async function resolveElementHandle(client: Client, nodeId: number, isRetry = false): Promise<ElementHandle> {
+  const boxModel = await client.DOM.getBoxModel({ nodeId });
+  if (!boxModel || !boxModel.model) {
+    throw new Error(`Failed to get box model for node ${nodeId}. Element may not exist or may not be rendered.`);
   }
-  return resolved.object.objectId;
+
+  const quad = boxModel.model.border;
+  const xs = [quad[0], quad[2], quad[4], quad[6]];
+  const ys = [quad[1], quad[3], quad[5], quad[7]];
+  const left = Math.min(...xs);
+  const right = Math.max(...xs);
+  const top = Math.min(...ys);
+  const bottom = Math.max(...ys);
+  const cx = (left + right) / 2;
+  const cy = (top + bottom) / 2;
+
+  const evalResult = await client.Runtime.evaluate({
+    expression: `document.elementFromPoint(${cx}, ${cy})`,
+    returnByValue: false,
+  });
+
+  if (evalResult.exceptionDetails) {
+    const text = evalResult.exceptionDetails.exception?.description || evalResult.exceptionDetails.text || "Unknown exception";
+    throw new Error(`Failed to resolve node ${nodeId} via elementFromPoint: ${text}`);
+  }
+
+  const objectId = evalResult.result.objectId;
+  if (!objectId) {
+    throw new Error(
+      `document.elementFromPoint found nothing at node ${nodeId}'s center (${cx.toFixed(1)}, ${cy.toFixed(1)}). It may be zero-size, hidden, or offscreen.`
+    );
+  }
+
+  const rect = await getBoundingRect(client, objectId);
+  const widthDiff = Math.abs(rect.width - (right - left));
+  const heightDiff = Math.abs(rect.height - (bottom - top));
+  if (widthDiff > GEOMETRY_TOLERANCE || heightDiff > GEOMETRY_TOLERANCE) {
+    if (!isRetry) {
+      await new Promise((resolve) => setTimeout(resolve, STALE_RETRY_DELAY_MS));
+      return resolveElementHandle(client, nodeId, true);
+    }
+    throw new Error(
+      `Node ${nodeId}'s center point (${cx.toFixed(1)}, ${cy.toFixed(1)}) resolved to a differently-sized element ` +
+        `(expected ${(right - left).toFixed(1)}x${(bottom - top).toFixed(1)}, got ${rect.width.toFixed(1)}x${rect.height.toFixed(1)}), ` +
+        `even after a retry - likely a child or overlapping element sits at that exact point instead of node ${nodeId} itself.`
+    );
+  }
+
+  return { objectId, rect };
 }
 
 async function getBoundingRect(client: Client, objectId: string): Promise<Rect> {
@@ -121,7 +199,7 @@ export async function assertTextFits(params: AssertTextFitsParams): Promise<Asse
 
   log.info(`Checking text fit for node ${nodeId}`);
 
-  const objectId = await resolveNodeObjectId(client, nodeId);
+  const { objectId } = await resolveElementHandle(client, nodeId);
 
   const result = await (client as any).Runtime.callFunctionOn({
     objectId,
@@ -169,15 +247,12 @@ export async function assertNoOverlap(params: AssertNoOverlapParams): Promise<As
 
   log.info(`Checking overlap between node ${nodeIdA} and node ${nodeIdB}`);
 
-  const [objectIdA, objectIdB] = await Promise.all([
-    resolveNodeObjectId(client, nodeIdA),
-    resolveNodeObjectId(client, nodeIdB),
+  const [handleA, handleB] = await Promise.all([
+    resolveElementHandle(client, nodeIdA),
+    resolveElementHandle(client, nodeIdB),
   ]);
-
-  const [rectA, rectB] = await Promise.all([
-    getBoundingRect(client, objectIdA),
-    getBoundingRect(client, objectIdB),
-  ]);
+  const rectA = handleA.rect;
+  const rectB = handleB.rect;
 
   const { overlaps, overlapRect } = rectsOverlap(rectA, rectB);
 
@@ -208,15 +283,14 @@ export async function assertWithinParent(params: AssertWithinParentParams): Prom
     `Checking bounds for node ${nodeId} against ${useViewport ? "viewport" : containerNodeId !== undefined ? `node ${containerNodeId}` : "immediate parent"}`
   );
 
-  const objectId = await resolveNodeObjectId(client, nodeId);
-  const elementRect = await getBoundingRect(client, objectId);
+  const { objectId, rect: elementRect } = await resolveElementHandle(client, nodeId);
 
   let containerRect: Rect;
   if (useViewport) {
     containerRect = await getViewportRect(client);
   } else if (containerNodeId !== undefined) {
-    const containerObjectId = await resolveNodeObjectId(client, containerNodeId);
-    containerRect = await getBoundingRect(client, containerObjectId);
+    const containerHandle = await resolveElementHandle(client, containerNodeId);
+    containerRect = containerHandle.rect;
   } else {
     const parentObjectId = await getParentObjectId(client, objectId);
     if (!parentObjectId) {

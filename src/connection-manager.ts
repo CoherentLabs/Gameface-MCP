@@ -11,6 +11,40 @@ export interface ConnectionOptions {
   target?: string | ((targets: CDP.Target[]) => CDP.Target);
 }
 
+// Below this, several CDP fixes this server depends on aren't guaranteed present
+// (per user report: Gameface 3.1.2 introduced additional CDP protocol support and
+// fixes). This is a floor, not a guarantee - our own dev SDK (3.2.0.2, well above
+// this) still has real quirks (DOM.resolveNode/setAttributeValue/performSearch
+// don't work as CDP normally implies; see assertions.ts and search-dom.ts),
+// worked around where found. Being at or above this version does not mean every
+// tool is unaffected by every quirk, only that it's the known reasonable floor.
+export const MIN_RECOMMENDED_COHTML_VERSION = "3.1.2";
+
+/**
+ * Compares two Cohtml-style version strings (e.g. "3.2.0.2"), which may have a
+ * differing number of numeric segments. Returns negative/zero/positive like a
+ * standard comparator (a < b, a == b, a > b).
+ */
+export function compareCohtmlVersions(a: string, b: string): number {
+  const partsA = a.split(".").map((n) => parseInt(n, 10) || 0);
+  const partsB = b.split(".").map((n) => parseInt(n, 10) || 0);
+  const len = Math.max(partsA.length, partsB.length);
+  for (let i = 0; i < len; i++) {
+    const diff = (partsA[i] ?? 0) - (partsB[i] ?? 0);
+    if (diff !== 0) return diff;
+  }
+  return 0;
+}
+
+/**
+ * Extracts the version number from a Cohtml navigator.userAgent string, e.g.
+ * "Cohtml/3.2.0.2 (Windows; Native) cohtml/3.2.0.2 (Coherent Labs)" -> "3.2.0.2".
+ */
+export function extractCohtmlVersion(userAgent: string): string | null {
+  const match = /cohtml\/([\d.]+)/i.exec(userAgent);
+  return match ? match[1] : null;
+}
+
 /**
  * Manages persistent Chrome DevTools Protocol connection
  */
@@ -18,6 +52,7 @@ export class ConnectionManager extends EventEmitter {
   private client: CDP.Client | null = null;
   private connected: boolean = false;
   private connectionOptions: ConnectionOptions | null = null;
+  private cohtmlVersion: string | null = null;
 
   /**
    * Establishes a connection to Chrome DevTools Protocol
@@ -78,6 +113,13 @@ export class ConnectionManager extends EventEmitter {
         this.client = null;
         throw new Error(
           `Target at ${host}:${port} does not appear to be Gameface Player (navigator.userAgent: "${userAgent}", expected it to mention "cohtml").`
+        );
+      }
+
+      this.cohtmlVersion = extractCohtmlVersion(userAgent);
+      if (this.cohtmlVersion && compareCohtmlVersions(this.cohtmlVersion, MIN_RECOMMENDED_COHTML_VERSION) < 0) {
+        log.warn(
+          `Connected Cohtml version ${this.cohtmlVersion} is below the recommended floor ${MIN_RECOMMENDED_COHTML_VERSION} - some CDP commands this server depends on may behave differently or be unavailable.`
         );
       }
 
@@ -176,6 +218,7 @@ export class ConnectionManager extends EventEmitter {
       log.warn("Disconnected from CDP");
       this.connected = false;
       this.client = null;
+      this.cohtmlVersion = null;
       this.emit("disconnected");
     });
   }
@@ -224,6 +267,7 @@ export class ConnectionManager extends EventEmitter {
     } finally {
       this.client = null;
       this.connected = false;
+      this.cohtmlVersion = null;
     }
   }
 
@@ -279,5 +323,13 @@ export class ConnectionManager extends EventEmitter {
    */
   getClient(): CDP.Client | null {
     return this.client;
+  }
+
+  /**
+   * Gets the connected Gameface/Cohtml version (e.g. "3.2.0.2"), or null if not
+   * connected or the version couldn't be parsed from navigator.userAgent.
+   */
+  getCohtmlVersion(): string | null {
+    return this.cohtmlVersion;
   }
 }

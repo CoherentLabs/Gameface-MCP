@@ -234,6 +234,35 @@ unverified until someone runs `/gameface-conductor` for real.
   node scripts/measure-frame-noise-floor.mjs --runs 5 --frames 600 --warmup 120
   ```
 
+## Version awareness
+
+This server talks to Gameface over CDP, and CDP support has changed across
+Gameface/Cohtml versions — some commands this server depends on behave
+differently, or aren't available, on older builds. `launch_browser`,
+`connect_browser`, and `gameface_get_status` all report the connected
+`cohtmlVersion` (parsed from `navigator.userAgent`), plus a `versionWarning`
+when it's below `MIN_RECOMMENDED_COHTML_VERSION` (currently `3.1.2`, per a
+user report that this version introduced additional CDP protocol support and
+fixes). `perf_measure` similarly reports `cohtmlVersionMatchesBaseline`
+against whatever version `tools/perf/noise-floor.md` was last calibrated
+against, the same way it flags a resolution mismatch.
+
+**This is a floor, not a guarantee.** Meeting it doesn't mean every tool is
+unaffected by every CDP quirk — our own dev SDK (3.2.0.2, comfortably above
+the floor) still has real ones, found and worked around:
+- `DOM.resolveNode` (both by `nodeId` and `backendNodeId`) returns an empty
+  `{}` — no error, just nothing usable — rather than a JS object reference.
+- `DOM.setAttributeValue` silently no-ops: it doesn't throw, but the
+  mutation never reaches the CDP-tracked tree or the live DOM.
+- `DOM.performSearch` (what `search_dom` uses) never returns a `searchId`.
+
+`assert_text_fits`/`assert_no_overlap`/`assert_within_parent` work around the
+first two by resolving a `nodeId` to a live element via `DOM.getBoxModel`
+(confirmed working) plus `document.elementFromPoint` at its center (see the
+comments in `src/tools/assertions.ts`) — `search_dom` doesn't have an
+equivalent fix yet. None of this is likely to be an exhaustive list; treat it
+as what's been verified so far, not a guarantee of what hasn't been hit.
+
 ## Notes
 
 - stdout is reserved for MCP protocol traffic — all logging goes to stderr.
