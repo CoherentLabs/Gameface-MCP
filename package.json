@@ -1,11 +1,11 @@
 {
-  "name": "chrome-cdp-mcp-server",
+  "name": "gameface-mcp",
   "version": "1.0.0",
-  "description": "MCP server for Chrome DevTools Protocol automation",
+  "description": "MCP server for driving and validating Coherent Gameface UI development over the Chrome DevTools Protocol: launch/connect to Gameface Player, inspect and interact with the DOM, run layout and performance assertions, and search Gameface documentation.",
   "type": "module",
   "main": "build/index.js",
   "bin": {
-    "chrome-cdp-mcp": "build/index.js"
+    "gameface-mcp": "build/index.js"
   },
   "scripts": {
     "build": "tsc",
@@ -14,12 +14,24 @@
   },
   "keywords": [
     "mcp",
-    "chrome",
-    "devtools",
-    "automation"
+    "gameface",
+    "cohtml",
+    "coherent-labs",
+    "game-ui",
+    "chrome-devtools-protocol",
+    "cdp",
+    "browser-automation"
   ],
-  "author": "",
-  "license": "ISC",
+  "author": "Coherent Labs",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/CoherentLabs/Gameface-MCP.git"
+  },
+  "homepage": "https://github.com/CoherentLabs/Gameface-MCP#readme",
+  "bugs": {
+    "url": "https://github.com/CoherentLabs/Gameface-MCP/issues"
+  },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "chrome-remote-interface": "^0.34.0"
