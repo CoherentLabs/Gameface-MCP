@@ -1,0 +1,21 @@
+description = "Clarify requirements for a new Gameface UI feature, get sign-off on a spec, then build and validate it."
+
+prompt = """
+Gemini CLI has no auto-triggered skill concept, so this command is the
+explicit entry point to the Game UI Conductor - the same skill Claude Code
+and GitHub Copilot pick up automatically from .claude/skills/gameface-conductor/.
+Follow the instructions embedded below exactly, including the dimension
+checklist. Do not skip Stage 3 (the spec + explicit sign-off) even if you
+judge the request to already be well specified - ask for confirmation
+before writing any code regardless.
+
+--- BEGIN .claude/skills/gameface-conductor/SKILL.md ---
+@{.claude/skills/gameface-conductor/SKILL.md}
+--- END SKILL.md ---
+
+--- BEGIN .claude/skills/gameface-conductor/references/dimensions.md ---
+@{.claude/skills/gameface-conductor/references/dimensions.md}
+--- END dimensions.md ---
+
+Request: {{args}}
+"""

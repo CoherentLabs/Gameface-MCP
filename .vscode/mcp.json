@@ -1,0 +1,10 @@
+{
+    "servers": {
+        "gameface_local": {
+            "command": "node",
+            "args": [
+                "build/index.js"
+            ]
+        }
+    }
+}
