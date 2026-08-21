@@ -27,7 +27,7 @@ import { parseArgs, setConfig, getConfig } from "./config.js";
 // Create server instance
 const mcpServer = new McpServer(
   {
-    name: "chrome-cdp-mcp-server",
+    name: "gameface-mcp-server",
     version: "1.0.0",
   },
   {
@@ -609,7 +609,7 @@ async function main() {
   setConfig(config);
 
   // Log configuration
-  log.info("Starting Chrome CDP MCP Server");
+  log.info("Starting Gameface MCP Server");
   if (config.browserExecutable) {
     log.info(`Default browser: ${config.browserExecutable}`);
   }

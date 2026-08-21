@@ -129,9 +129,9 @@ export function parseArgs(args: string[]): ServerConfig {
  */
 function printHelp(): void {
   console.error(`
-Chrome CDP MCP Server - Command Line Options
+Gameface MCP Server - Command Line Options
 
-Usage: chrome-cdp-mcp [options]
+Usage: gameface-mcp [options]
 
 Options:
   -b, --browser-executable <path>   Path to browser executable (Chrome, Edge, Brave, etc.)
@@ -170,16 +170,16 @@ Config file:
 
 Examples:
   # Use default Chrome location
-  chrome-cdp-mcp --browser-executable "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
+  gameface-mcp --browser-executable "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
 
   # Launch with custom args and port
-  chrome-cdp-mcp -b chrome.exe -a "--headless=new,--disable-gpu" -p 9223
+  gameface-mcp -b chrome.exe -a "--headless=new,--disable-gpu" -p 9223
 
   # Connect to existing browser on custom port
-  chrome-cdp-mcp -p 9223
+  gameface-mcp -p 9223
 
   # Rely entirely on ~/.gameface-mcp/config.json - no CLI flags needed
-  chrome-cdp-mcp
+  gameface-mcp
 
 Notes:
   - stdout is reserved for MCP protocol communication
