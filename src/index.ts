@@ -2,6 +2,9 @@
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { randomUUID } from "node:crypto";
+import { createServer, type Server } from "node:http";
 import { z } from "zod";
 import { launchBrowser, closeBrowser } from "./tools/launch-browser.js";
 import { connectBrowser, disconnectBrowser } from "./tools/connect-browser.js";
@@ -27,7 +30,7 @@ import { parseArgs, setConfig, getConfig } from "./config.js";
 // Create server instance
 const mcpServer = new McpServer(
   {
-    name: "chrome-cdp-mcp-server",
+    name: "gameface-mcp-server",
     version: "1.0.0",
   },
   {
@@ -48,6 +51,9 @@ const mcpServer = new McpServer(
 
 // Use centralized logger (writes to stderr, stdout is reserved for MCP protocol)
 const log = logger.child("Main");
+let httpServer: Server | undefined;
+let isShuttingDown = false;
+let httpRequestCounter = 0;
 
 // Register MCP tools
 function registerTools() {
@@ -602,14 +608,141 @@ async function registerResources() {
   log.info(`Resources registered successfully (${ragInfos.length} RAG doc files + index)`);
 }
 
-// Start server with stdio transport
+function closeHttpServer(): Promise<void> {
+  if (!httpServer) {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve, reject) => {
+    const server = httpServer!;
+    httpServer = undefined;
+    server.close((error) => {
+      if (error) {
+        if ((error as any).code === "ERR_SERVER_NOT_RUNNING") {
+          resolve();
+          return;
+        }
+        reject(error);
+        return;
+      }
+      resolve();
+    });
+  });
+}
+
+async function startHttpTransport(config: ReturnType<typeof getConfig>): Promise<void> {
+  const transport = new StreamableHTTPServerTransport({
+    // Reusing a stateless transport across requests throws in MCP SDK >= 1.29.
+    // Use server-generated sessions so initialize/initialized/tool calls can share one transport instance.
+    sessionIdGenerator: () => randomUUID(),
+    enableJsonResponse: true,
+  });
+
+  transport.onerror = (error) => {
+    log.error(`HTTP transport internal error: ${error?.stack || error?.message || String(error)}`);
+  };
+
+  await mcpServer.connect(transport);
+
+  async function readJsonBody(req: Parameters<typeof transport.handleRequest>[0]): Promise<unknown> {
+    const chunks: Buffer[] = [];
+    for await (const chunk of req) {
+      chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : chunk);
+    }
+
+    const raw = Buffer.concat(chunks).toString("utf8").trim();
+    if (!raw) {
+      return undefined;
+    }
+    return JSON.parse(raw);
+  }
+
+  httpServer = createServer(async (req, res) => {
+    const requestId = ++httpRequestCounter;
+    const method = req.method || "GET";
+    const host = req.headers.host || `${config.mcpHost}:${config.mcpPort}`;
+    const requestUrl = new URL(req.url || "/", `http://${host}`);
+    const protocolVersion = req.headers["mcp-protocol-version"];
+    const sessionId = req.headers["mcp-session-id"];
+    const accept = req.headers.accept;
+    const contentType = req.headers["content-type"];
+
+    log.info(
+      `[http:${requestId}] ${method} ${requestUrl.pathname} accept=${accept || "-"} content-type=${contentType || "-"} protocol=${protocolVersion || "-"} session=${sessionId || "-"}`
+    );
+
+    if (requestUrl.pathname !== config.mcpPath) {
+      res.statusCode = 404;
+      res.setHeader("content-type", "application/json");
+      res.end(JSON.stringify({ error: "Not Found" }));
+      return;
+    }
+
+    if (method !== "GET" && method !== "POST" && method !== "DELETE") {
+      res.statusCode = 405;
+      res.setHeader("allow", "GET, POST, DELETE");
+      res.setHeader("content-type", "application/json");
+      res.end(JSON.stringify({ error: `Method Not Allowed: ${method}` }));
+      return;
+    }
+
+    try {
+      if (method === "POST") {
+        let parsedBody: unknown;
+        try {
+          parsedBody = await readJsonBody(req);
+        } catch {
+          log.warn(`[http:${requestId}] Invalid JSON body`);
+          res.statusCode = 400;
+          res.setHeader("content-type", "application/json");
+          res.end(JSON.stringify({ error: "Invalid JSON body" }));
+          return;
+        }
+
+        if (parsedBody && typeof parsedBody === "object") {
+          const body = parsedBody as { method?: unknown; id?: unknown };
+          if (typeof body.method === "string") {
+            log.info(`[http:${requestId}] JSON-RPC method=${body.method} id=${body.id ?? "(notification)"}`);
+          }
+        }
+
+        await transport.handleRequest(req, res, parsedBody);
+      } else {
+        await transport.handleRequest(req, res);
+      }
+
+      log.info(`[http:${requestId}] Completed with status ${res.statusCode}`);
+    } catch (error: any) {
+      log.error(
+        `[http:${requestId}] HTTP transport request error: ${error?.stack || error?.message || String(error)}`
+      );
+      if (!res.headersSent) {
+        res.statusCode = 500;
+        res.setHeader("content-type", "application/json");
+        res.end(JSON.stringify({ error: "Internal Server Error" }));
+      }
+    }
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    httpServer?.once("error", reject);
+    httpServer?.listen(config.mcpPort, config.mcpHost, () => {
+      httpServer?.off("error", reject);
+      resolve();
+    });
+  });
+
+  log.info(`MCP HTTP endpoint listening on http://${config.mcpHost}:${config.mcpPort}${config.mcpPath}`);
+}
+
+// Start server with selected transport
 async function main() {
   // Parse command-line arguments (skip first two: node and script path)
   const config = parseArgs(process.argv.slice(2));
   setConfig(config);
 
   // Log configuration
-  log.info("Starting Chrome CDP MCP Server");
+  log.info("Starting Gameface MCP Server");
   if (config.browserExecutable) {
     log.info(`Default browser: ${config.browserExecutable}`);
   }
@@ -618,13 +751,18 @@ async function main() {
   }
   log.info(`Default port: ${config.port}`);
   log.info(`Default host: ${config.cdpHost}`);
+  log.info(`MCP transport: ${config.transport}`);
   
   // Register all tools and resources
   registerTools();
   await registerResources();
   
-  const transport = new StdioServerTransport();
-  await mcpServer.connect(transport);
+  if (config.transport === "http") {
+    await startHttpTransport(config);
+  } else {
+    const transport = new StdioServerTransport();
+    await mcpServer.connect(transport);
+  }
   
   log.info("Server started successfully");
 }
@@ -634,30 +772,61 @@ async function cleanup() {
   log.info("Cleaning up resources");
   try {
     await disconnectBrowser();
+  } catch (error: any) {
+    log.error(`Error disconnecting browser: ${error.message}`);
+  }
+
+  try {
     await closeBrowser();
   } catch (error: any) {
-    log.error(`Error during cleanup: ${error.message}`);
+    log.error(`Error closing browser: ${error.message}`);
   }
+
+  try {
+    await closeHttpServer();
+  } catch (error: any) {
+    log.error(`Error closing HTTP server: ${error.message}`);
+  }
+}
+
+async function shutdown(exitCode: number, reason: string): Promise<void> {
+  if (isShuttingDown) {
+    return;
+  }
+
+  isShuttingDown = true;
+  log.info(`Shutting down (${reason})`);
+
+  try {
+    await cleanup();
+  } catch (error: any) {
+    log.error(`Cleanup failed during shutdown: ${error.message}`);
+  }
+
+  try {
+    await mcpServer.close();
+  } catch (error: any) {
+    log.error(`Failed to close MCP server: ${error.message}`);
+  }
+
+  process.exit(exitCode);
 }
 
 // Handle graceful shutdown
 process.on("SIGINT", async () => {
-  log.info("Received SIGINT, shutting down gracefully");
-  await cleanup();
-  await mcpServer.close();
-  process.exit(0);
+  await shutdown(0, "SIGINT");
 });
 
 process.on("SIGTERM", async () => {
-  log.info("Received SIGTERM, shutting down gracefully");
-  await cleanup();
-  await mcpServer.close();
-  process.exit(0);
+  await shutdown(0, "SIGTERM");
 });
 
 // Run the server
 main().catch((error) => {
   log.error(`Fatal error: ${error.message}`);
   logger.error(error.stack || error.toString());
-  process.exit(1);
+  shutdown(1, "fatal-startup-error").catch((shutdownError) => {
+    log.error(`Shutdown after fatal error failed: ${shutdownError.message}`);
+    process.exit(1);
+  });
 });
