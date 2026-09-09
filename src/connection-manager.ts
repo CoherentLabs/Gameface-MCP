@@ -53,6 +53,7 @@ export class ConnectionManager extends EventEmitter {
   private connected: boolean = false;
   private connectionOptions: ConnectionOptions | null = null;
   private cohtmlVersion: string | null = null;
+  private dataBindingSyncCount: number = 0;
 
   /**
    * Establishes a connection to Chrome DevTools Protocol
@@ -185,6 +186,18 @@ export class ConnectionManager extends EventEmitter {
       this.emit("documentUpdated");
     });
 
+    // Gameface-only DOM event, not part of upstream CDP: fired by the engine
+    // whenever a data-binding synchronization pass completes (i.e. after
+    // engine.synchronizeModels() has actually pushed model values into the DOM).
+    // chrome-remote-interface re-emits every incoming event by its raw method
+    // name, so this works even though the bundled protocol descriptor doesn't
+    // know the event exists.
+    (this.client as any).on("DOM.dataBindingModelsSynchronized", () => {
+      this.dataBindingSyncCount++;
+      log.debug("Data binding models synchronized");
+      this.emit("dataBindingModelsSynchronized");
+    });
+
     // Console API called (console.log, console.error, etc.)
     Runtime.consoleAPICalled((params: any) => {
       const message: ConsoleMessage = {
@@ -247,6 +260,66 @@ export class ConnectionManager extends EventEmitter {
       log.error(`Command failed: ${fullMethod} - ${error}`);
       throw error;
     }
+  }
+
+  /**
+   * Sends a raw CDP command by its full "Domain.method" name.
+   *
+   * sendCommand() goes through the domain objects chrome-remote-interface
+   * builds from its *bundled* protocol descriptor (we connect with local:true),
+   * so it only knows upstream Chrome commands. Gameface adds its own commands
+   * to the DOM domain (DOM.getDataBindingModels and friends) which are absent
+   * from that descriptor and therefore unreachable that way. client.send()
+   * writes the method name straight onto the wire, so it reaches them.
+   */
+  async sendRaw(method: string, params?: any): Promise<any> {
+    if (!this.client) {
+      throw new Error("Not connected");
+    }
+
+    log.debug(`Executing raw CDP command: ${method}`);
+
+    try {
+      return await (this.client as any).send(method, params);
+    } catch (error) {
+      log.error(`Raw command failed: ${method} - ${error}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Number of DOM.dataBindingModelsSynchronized events seen since connecting.
+   * Callers snapshot this before triggering a sync and pass it to
+   * waitForDataBindingSync() to avoid racing an event that already fired.
+   */
+  getDataBindingSyncCount(): number {
+    return this.dataBindingSyncCount;
+  }
+
+  /**
+   * Resolves once a data-binding synchronization pass completes after the given
+   * counter value, or false if none arrives within timeoutMs. Never rejects -
+   * a missed event only means we can't confirm the sync, not that it failed.
+   */
+  async waitForDataBindingSync(since: number, timeoutMs: number = 2000): Promise<boolean> {
+    if (this.dataBindingSyncCount > since) {
+      return true;
+    }
+
+    return new Promise<boolean>((resolve) => {
+      const timer = setTimeout(() => {
+        this.off("dataBindingModelsSynchronized", onSync);
+        resolve(false);
+      }, timeoutMs);
+
+      const onSync = () => {
+        clearTimeout(timer);
+        this.off("dataBindingModelsSynchronized", onSync);
+        resolve(true);
+      };
+
+      this.on("dataBindingModelsSynchronized", onSync);
+    });
   }
 
   /**

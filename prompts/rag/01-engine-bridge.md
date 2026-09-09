@@ -87,7 +87,11 @@ engine.call('GetPlayerName').then((name) => {
 [TOPIC: engine-bridge] [TYPE: pattern] [SEVERITY: high] [SOURCE: mocking-data.mdx]
 ## Mocking Data Models During Development
 
-Frontend developers can iterate without a running game engine by creating mock models in JavaScript. Use `engine.createJSModel("ModelName", initialData)` to register a model. Then call `engine.updateWholeModel("ModelName")` followed by `engine.synchronizeModels()` to force the DOM to reflect changes.
+Frontend developers can iterate without a running game engine by creating mock models in JavaScript. Use `engine.createJSModel("ModelName", initialData)` to register a model — this also creates a global of that name holding the model object. Then call `engine.updateWholeModel(ModelName)` followed by `engine.synchronizeModels()` to force the DOM to reflect changes.
+
+> ⚠️ GAMEFACE CONSTRAINT: `engine.updateWholeModel` takes the model **object**, not its name. `engine.createJSModel` takes the name as a string, so the two calls do not look alike. Passing a string to `updateWholeModel` is silently ignored — no error, no exception, the DOM simply never updates. Verified on Cohtml 3.2.0.2.
+
+> ⚠️ GAMEFACE CONSTRAINT: `engine.unregisterModel` also takes the model object. Passing it a string crashes the Cohtml process outright (verified on 3.2.0.2), so never build the argument from a name.
 
 Use `engine.call("runningInGame")` inside `engine.whenReady` to auto-detect whether you are running in a browser/Player or in the actual game, and enable mocks only when outside the game.
 
@@ -96,12 +100,14 @@ engine.whenReady.then(() => {
     engine.call("runningInGame").then((inGame) => {
         if (!inGame) {
             engine.createJSModel("PlayerModel", { health: 100, ammo: 24 });
-            engine.updateWholeModel("PlayerModel");
+            engine.updateWholeModel(PlayerModel); // the object, not "PlayerModel"
             engine.synchronizeModels();
         }
     });
 });
 ```
+
+Note that `engine.createJSModel` does **not** overwrite a model that already exists — the second call leaves the original data in place.
 
 ---
 
@@ -111,10 +117,12 @@ engine.whenReady.then(() => {
 
 In a real game, C++ pushes binding updates automatically each frame. When mocking in JavaScript, you must manually trigger two calls after changing model data:
 
-1. `engine.updateWholeModel("ModelName")` — marks the model as dirty and queues it for DOM synchronization.
+1. `engine.updateWholeModel(ModelObject)` — marks the model as dirty and queues it for DOM synchronization. Pass the model object itself; a string is accepted and does nothing.
 2. `engine.synchronizeModels()` — executes the synchronization pass, updating all bound DOM elements.
 
 Calling only one of these will leave the UI out of sync with the model data.
+
+When debugging through the Gameface MCP server, `sync_data_binding_models` performs both steps and waits for the engine to confirm the pass, and `inspect_data_bindings` reports which expressions are still out of sync.
 
 ---
 

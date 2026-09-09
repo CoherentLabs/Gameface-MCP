@@ -79,6 +79,8 @@ const LINT_EXPRESSION = `(function (rootSelector) {
     : Array.prototype.slice.call(document.querySelectorAll("*"));
 
   var violations = [];
+  var stackingCounts = {};
+  var stackingTotal = 0;
 
   for (var i = 0; i < elements.length; i++) {
     var el = elements[i];
@@ -177,6 +179,71 @@ const LINT_EXPRESSION = `(function (rootSelector) {
         detail: "opacity:" + cs.opacity + " on an element with children promotes an intermediate GPU compositing layer for the whole subtree; if the subtree is fully opaque, use coh-simple-opacity instead.",
       });
     }
+
+    // Stacking contexts. Each one is a separate paint grouping, so the count
+    // drives how much the engine can batch. The rules below are not Chrome's -
+    // they were calibrated by dumping CohtmlDebug.dumpStackingContext against a
+    // page isolating each trigger on Cohtml 3.2.0.2, and the engine differs
+    // from Chrome in three ways that matter:
+    //   - position:relative promotes on its own, with no z-index needed
+    //     (engine reason "IsPositioned"). Chrome does not do this.
+    //   - overflow:auto and overflow:hidden promote (reason "ShouldOverflowClip").
+    //   - will-change and contain:paint do NOT promote, though Chrome's rules
+    //     say they should.
+    // Reporting every position:relative as a violation would bury the output on
+    // a real screen, so the ubiquitous, cheap causes are counted into a summary
+    // and only the avoidable, expensive ones are raised per element.
+    var stackingCause = null;
+    var stackingCostly = false;
+
+    // The document element is skipped: the engine treats it as the layout root
+    // (it reports "IsLayoutRoot", not an authored context) and Gameface resolves
+    // its overflow to auto by default, so counting it would add a constant +1 to
+    // every page's overflow tally that no author can act on.
+    if (el !== document.documentElement) {
+      if (!isNaN(opacity) && opacity < 0.999) { stackingCause = "opacity"; stackingCostly = true; }
+      else if (cs.filter && cs.filter !== "none") { stackingCause = "filter"; stackingCostly = true; }
+      else if (cs.backdropFilter && cs.backdropFilter !== "none") { stackingCause = "backdrop-filter"; stackingCostly = true; }
+      else if (cs.mixBlendMode && cs.mixBlendMode !== "normal") { stackingCause = "mix-blend-mode"; stackingCostly = true; }
+      else if (cs.isolation === "isolate") { stackingCause = "isolation"; stackingCostly = true; }
+      else if (cs.perspective && cs.perspective !== "none") { stackingCause = "perspective"; stackingCostly = true; }
+      else if (cs.transform && cs.transform !== "none" && cs.transform !== "") { stackingCause = "transform"; }
+      else if (cs.position === "fixed") { stackingCause = "position:fixed"; }
+      else if (cs.position === "relative" || cs.position === "absolute") { stackingCause = "position:" + cs.position; }
+      else if (cs.overflow === "auto" || cs.overflow === "hidden" || cs.overflowX === "auto" || cs.overflowX === "hidden") { stackingCause = "overflow"; }
+    }
+
+    if (stackingCause) {
+      stackingCounts[stackingCause] = (stackingCounts[stackingCause] || 0) + 1;
+      stackingTotal++;
+      if (stackingCostly && stackingCause !== "opacity") {
+        // opacity already has its own, more specific rule above.
+        violations.push({
+          rule: "expensive-stacking-context",
+          selector: describeSelector(el),
+          detail: stackingCause + " forces this element into its own stacking context, so its subtree is composited separately and cannot batch with its siblings. Remove it, or pre-bake the effect into the source art.",
+        });
+      }
+    }
+
+    // contain:paint is a layer-promotion hint in Chrome but does nothing in
+    // Cohtml (verified 3.2.0.2: it produced no stacking context). Worth
+    // surfacing because its presence usually means someone expected promotion
+    // they are not getting.
+    //
+    // will-change is the same story - it produced no stacking context either -
+    // but it is deliberately NOT checked here, because Gameface does not expose
+    // it at all: the camelCase property is undefined, getPropertyValue
+    // ("will-change") returns "", and element.style.willChange is undefined
+    // even for an inline declaration. There is no way to detect it from a
+    // rendered-tree snapshot, so a rule for it could only ever silently pass.
+    if (cs.contain && cs.contain.indexOf("paint") !== -1) {
+      violations.push({
+        rule: "ineffective-layer-hint",
+        selector: describeSelector(el),
+        detail: "contain:paint does not create a stacking context in Cohtml as it does in Chrome; use overflow:hidden if the intent was to clip and isolate painting.",
+      });
+    }
   }
 
   // RAG: 07-performance.md "SCSS Variables vs. CSS Custom Properties" (medium).
@@ -196,7 +263,12 @@ const LINT_EXPRESSION = `(function (rootSelector) {
     });
   }
 
-  return { ok: true, violations: violations, elementsScanned: elements.length };
+  return {
+    ok: true,
+    violations: violations,
+    elementsScanned: elements.length,
+    stackingContexts: { total: stackingTotal, byCause: stackingCounts }
+  };
 })(SELECTOR_PLACEHOLDER)`;
 
 /**
@@ -236,7 +308,12 @@ export async function perfLint(params: PerfLintParams): Promise<PerfLintResult> 
 
     log.info(`Scanned ${value.elementsScanned} elements, found ${value.violations.length} violation(s)`);
 
-    return { success: true, violations: value.violations, elementsScanned: value.elementsScanned };
+    return {
+      success: true,
+      violations: value.violations,
+      elementsScanned: value.elementsScanned,
+      stackingContexts: value.stackingContexts,
+    };
   } catch (error: any) {
     log.error(`perf_lint failed: ${error.message}`);
     return { success: false, violations: [], elementsScanned: 0, error: error.message };

@@ -10,6 +10,8 @@ corpus. Only Gameface Player is ever allowed to be launched or connected to
 — every connection is verified by CDP identity (`navigator.userAgent`
 must contain `cohtml`) and refused/killed otherwise.
 
+Version history is in [CHANGELOG.md](CHANGELOG.md).
+
 ## Prerequisites
 
 - Node.js 18+ (the server uses the global `fetch` API).
@@ -74,6 +76,7 @@ Full flag list:
 | `--port <port>` | `-p` | CDP remote-debugging port | `9444` |
 | `--cdp-host <host>` | `-h` | Host for the CDP connection | `localhost` |
 | `--config <path>` | `-c` | Path to the JSON config file | `~/.gameface-mcp/config.json` |
+| `--perf-budget <path>` | | Path to this project's performance budget file | `./gameface-perf-budget.json` |
 | `--help` | | Print this list | |
 
 ## Connecting from an LLM client
@@ -180,6 +183,150 @@ the config file for a specific client or project.
 | `search_gameface_docs` | Searches the Gameface RAG documentation corpus (`prompts/rag/`) for guidance relevant to a query. |
 | `perf_lint` | Static, deterministic structural check for layout patterns the Gameface docs name as expensive (e.g. `align-items: stretch`, unsized flex items, `display: simple` misuse). No timing involved. |
 | `perf_measure` | Injects the fixed frame-timing scenario from `tools/perf/calibrate.js` into the live connection and reports p50/p95/p99 against the recorded baseline in `tools/perf/noise-floor.md`. |
+| `perf_profile` | Measures what the UI costs the engine per frame, and stops. No breakdown, no verdict - whether that cost is acceptable is the user's call. |
+| `perf_trace` | Per-phase breakdown for an over-budget UI. Requires a budget the user set; returns nothing to act on without one, or when already within budget. |
+| `check_memory` | Reads JS heap and GPU texture memory; with a trigger expression, runs a before/after leak test around a forced garbage collection. |
+| `get_image_cache_stats` | Reports resident texture memory per image, largest first, in decoded GPU bytes rather than file size. |
+| `get_data_binding_models` | Lists the data-binding models the engine holds and reads their live values, tagging each as a JS mock or an engine-side (C++-registered) model. |
+| `inspect_data_bindings` | Debugs `data-bind-*` attributes: per-expression current value, type, sync state, and any parse/compile/evaluation error. Sweeps the whole document by default. |
+| `set_data_binding_value` | Writes one scalar into a bound model and pushes it to the DOM, to drive the UI through states without the game running. |
+| `set_data_binding_model` | Creates a model, or replaces one wholesale, then synchronizes. This is how you stand up mock models with no game attached. |
+| `sync_data_binding_models` | Runs a synchronization pass so the DOM catches up with model values, and waits for the engine to confirm it. |
+
+## Performance and memory tools
+
+`perf_lint` finds expensive structure without running anything. `perf_measure`
+reports frame-time percentiles observed from JavaScript. `perf_profile` and
+`perf_trace` measure engine cost and break it down.
+
+### The budget gate
+
+Trace output has no natural stopping point. There is always a most expensive
+phase and always a few percent to shave, so an agent handed a ranked breakdown
+and told to make the UI fast will optimise indefinitely against a target nobody
+set. How fast is fast enough depends on what else the frame has to do, which is
+a decision only the team can make.
+
+So the per-phase data is gated, and the gate is enforced by withholding the
+data rather than by asking the agent to hold back:
+
+1. `perf_profile` measures and stops. It returns one number, the UI's engine
+   cost per frame, plus how repeatable that number is. No breakdown, no
+   ranking, no verdict. There is nothing in its output to optimise toward.
+2. Whether that cost is acceptable is put to the user. Where the client
+   supports MCP elicitation the question goes through the protocol, which an
+   agent cannot answer on the user's behalf. Otherwise the tool hands back a
+   message to relay and stops.
+3. The answer is stored in `gameface-perf-budget.json` in the project root, a
+   file the user owns, can review, edit or delete. Its location is overridable
+   with `--perf-budget`. It persists, so the question is asked once per project
+   rather than once per conversation.
+4. `perf_trace` produces a breakdown only when that file exists **and** the UI
+   is over the budget in it. Within budget, it reports that and returns no
+   phases. A missing, malformed or non-positive budget unlocks nothing.
+
+If the user declines, nothing further happens. No changes, no suggestions.
+
+### How the trace is measured
+
+`perf_trace` wraps the CDP `Tracing` domain, which Gameface extends with
+`getTraceSystemsAndLevels`. The engine emits its own phases into the standard
+Chrome trace-event stream as balanced begin/end pairs carrying a frame ID.
+
+Three details shape the numbers:
+
+- **Phases run across several threads**, so begin/end pairing is keyed per
+  thread. Styling is not on the advance thread.
+- **Phases nest several levels deep.** Ranking on total cost points at the same
+  work repeatedly, since `Coherent_Paint`, `Coherent_ExecutePaint`,
+  `Coherent_Backend` and `Coherent_BackendExecute` are one hotspot wearing four
+  names. Both ranking and the budget total use **self time**, with nested
+  children subtracted, so each cost is counted once.
+- **The noise floor is measured live**, not read from a committed baseline.
+  Each call takes a warmup capture, discards it, then averages several more and
+  reports the spread. Repeated captures of an unchanged page vary by up to 20%
+  on paint-side phases, so a phase is only marked actionable when it is both
+  large enough to close the gap and above its own variance. Re-run after a
+  change: a difference smaller than the reported repeatability is not an
+  improvement.
+
+Engine cost as a share of the observed frame period is deliberately **not**
+reported. Measured on the same page it ranged from 3% to 12% purely on how the
+Player was being driven, since frame pacing depends on window focus and on the
+debugging connection. Per-frame microseconds transfer between environments;
+that ratio does not.
+
+The CDP `Memory` domain is **not implemented** by Gameface — every command in
+it, `getDOMCounters` and `prepareForLeakDetection` included, returns "wasn't
+found". `Tracing.requestMemoryDump` is accepted but returns nothing, and the
+HeapProfiler allocation-tracking event stream never fires. `check_memory` is
+built on what does work: `Runtime.getHeapUsage`, `HeapProfiler.collectGarbage`
+and the engine's image cache.
+
+Two engine behaviours worth knowing when reading these numbers:
+
+- Image cache sizes are **decoded GPU cost, not file size**. A 424-byte 128×128
+  PNG is reported as 65536 bytes, which is its width × height × 4.
+- Removing an element from the DOM does **not** release its texture. Images stay
+  resident at full size until something calls `clearCachedUnusedImages`, which
+  `get_image_cache_stats` exposes as `releaseUnused`. A screen that swaps art
+  repeatedly accumulates GPU memory silently.
+- Inline `data:` URI and SVG assets are not tracked by the image cache at all,
+  so an all-inline page reports zero.
+
+### Stacking contexts in perf_lint
+
+`perf_lint` reports how many elements the engine puts in their own stacking
+context and why. Each context is a separate paint grouping, so the count drives
+how much the engine can batch.
+
+These rules are **not Chrome's**. They were calibrated by dumping
+`CohtmlDebug.dumpStackingContext` against a page isolating each trigger, and
+checking the engine's own verdict per element. Cohtml 3.2.0.2 differs from
+Chrome in three ways:
+
+- `position: relative` promotes on its own, with no `z-index` needed.
+- `overflow: auto` and `overflow: hidden` promote.
+- `will-change` and `contain: paint` do **not** promote, though Chrome's rules
+  say they should.
+
+Ubiquitous causes (position, overflow) are counted into a summary rather than
+raised per element, since flagging every `position: relative` would bury the
+output. Only the avoidable, expensive causes — `filter`, `backdrop-filter`,
+`mix-blend-mode`, `isolation`, `perspective` — are reported per element.
+`contain: paint` is flagged as an ineffective hint. `will-change` is not checked
+at all, because Gameface does not expose it: the computed property is undefined,
+`getPropertyValue("will-change")` returns empty, and `element.style.willChange`
+is undefined even for an inline declaration.
+
+## Data binding tools
+
+The five tools above wrap Gameface's own extensions to the CDP `DOM` domain —
+`getDataBindingModelNames`, `getDataBindingModels`, `getDataBindingDataForNode`,
+`updateDataBindingValue`, `importDataBindingModels`, plus the
+`DOM.dataBindingModelsSynchronized` event. None exist in upstream Chrome, so
+they are sent as raw CDP methods through `ConnectionManager.sendRaw()` rather
+than through the domain objects `chrome-remote-interface` builds from its
+bundled protocol descriptor.
+
+They work the same whether the models come from a JS mock or from the game's
+C++ side. A model is reported with `source: "engine"` when the engine knows it
+but the page has no global of that name, which is how a C++-registered model
+appears; `sync_data_binding_models` lists those as skipped, since the game
+drives them itself.
+
+Engine behaviour these tools work around, verified on Cohtml 3.2.0.2:
+
+- `updateDataBindingValue` accepts scalars only. Objects, arrays and `null`
+  come back `succeeded: false` and leave the model untouched — use
+  `set_data_binding_model` for those.
+- Neither a value write nor a model import updates the rendered DOM on its own.
+  The DOM only catches up after a synchronization pass, and a value write needs
+  its model marked dirty first. Both tools do this by default.
+- `engine.updateWholeModel` takes the model **object**; a name string is
+  silently ignored.
+- `engine.unregisterModel` takes the model object too, and a string argument
+  crashes the Player process, so these tools never call it.
 
 ## Available resources
 
