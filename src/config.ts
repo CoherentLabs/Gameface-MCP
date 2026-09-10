@@ -12,6 +12,13 @@ export interface ServerConfig {
   browserArgs: string[];
   port: number;
   cdpHost: string;
+  /**
+   * Where the user's performance budget lives. Unlike the settings above this
+   * one is per-project rather than per-machine (a budget describes a UI, not a
+   * developer's box), so it defaults to the working directory the server was
+   * launched in rather than the home-directory config folder.
+   */
+  perfBudgetFile?: string;
 }
 
 interface ConfigFileShape {
@@ -19,6 +26,7 @@ interface ConfigFileShape {
   browserArgs?: string[];
   port?: number;
   cdpHost?: string;
+  perfBudgetFile?: string;
 }
 
 // One config file per developer machine, not per-project - this server is
@@ -73,6 +81,7 @@ export function parseArgs(args: string[]): ServerConfig {
     browserArgs: fileConfig.browserArgs || [],
     port: fileConfig.port ?? 9444,
     cdpHost: fileConfig.cdpHost || "localhost",
+    perfBudgetFile: fileConfig.perfBudgetFile,
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -99,6 +108,10 @@ export function parseArgs(args: string[]): ServerConfig {
       case "--cdp-host":
       case "-h":
         config.cdpHost = args[++i];
+        break;
+
+      case "--perf-budget":
+        config.perfBudgetFile = args[++i];
         break;
 
       case "--config":
@@ -149,6 +162,9 @@ Options:
 
   -c, --config <path>               Path to a JSON config file (see below)
                                      Default: ~/.gameface-mcp/config.json
+
+      --perf-budget <path>          Path to this project's performance budget
+                                     Default: ./gameface-perf-budget.json
 
   --help                            Show this help message
 

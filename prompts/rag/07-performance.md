@@ -241,3 +241,21 @@ Standard CSS `opacity` on an element with children creates an intermediate compo
 > ⚠️ GAMEFACE CONSTRAINT: `coh-simple-opacity` produces incorrect results if any child element also has non-trivial compositing (gradients with alpha, `backdrop-filter`). Use only on fully opaque subtrees.
 
 ---
+
+---
+[TOPIC: performance] [TYPE: concept] [SEVERITY: high] [SOURCE: empirical, Cohtml 3.2.0.2]
+## Which CSS Creates a Stacking Context in Cohtml
+
+Each stacking context is a separate paint grouping, so the number of them limits how much the engine can batch. Cohtml's rules are **not** the browser's — verified by dumping the engine's own stacking-context tree against a page isolating each trigger:
+
+**Creates a context:** `opacity` below 1, any `transform` other than `none` (2D included), `filter`, `backdrop-filter`, `mix-blend-mode` other than `normal`, `isolation: isolate`, `perspective`, `position: fixed`, `overflow: auto`, `overflow: hidden`, and — unlike the browser — **`position: relative` and `position: absolute` on their own, with no `z-index` needed**.
+
+**Does not create a context:** `z-index` on a `position: static` element, `transform: none`, `opacity: 1`, `overflow: visible`, and — again unlike the browser — **`will-change` and `contain: paint`**.
+
+> ⚠️ GAMEFACE CONSTRAINT: `will-change: transform` does not promote an element in Cohtml. If it was added as a performance hint it is doing nothing; delete it rather than trusting it. The same applies to `contain: paint` — use `overflow: hidden` if the intent was to clip and isolate painting.
+
+Because `position: relative` alone promotes, casually relative-positioning every element in a HUD multiplies paint groupings. Prefer laying out with flex and only positioning where an element genuinely needs to be taken out of flow.
+
+The `perf_lint` tool reports the live stacking-context count broken down by cause, and flags the avoidable expensive ones per element.
+
+---

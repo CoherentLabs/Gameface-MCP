@@ -19,10 +19,22 @@ import { assertTextFits, assertNoOverlap, assertWithinParent } from "./tools/ass
 import { searchGamefaceDocs } from "./tools/search-gameface-docs.js";
 import { perfLint } from "./tools/perf-lint.js";
 import { perfMeasure } from "./tools/perf-measure.js";
+import { perfTrace } from "./tools/perf-trace.js";
+import { perfProfile } from "./tools/perf-profile.js";
+import { checkMemory, getImageCacheStats } from "./tools/memory.js";
+import {
+  getDataBindingModels,
+  inspectDataBindings,
+  setDataBindingValue,
+  setDataBindingModel,
+  syncDataBindingModels,
+} from "./tools/data-bindings.js";
 import { getCodeInstructionsResource } from "./resources/code-instructions.js";
 import { listRagResources, getRagDocResource, getRagIndexResource } from "./resources/rag-docs.js";
 import { logger } from "./logger.js";
 import { parseArgs, setConfig, getConfig } from "./config.js";
+import { setBudgetPath, getBudgetPath } from "./perf-budget.js";
+import { setElicitationServer } from "./elicitation.js";
 
 // Create server instance
 const mcpServer = new McpServer(
@@ -557,6 +569,270 @@ function registerTools() {
     }
   );
 
+  // Perf Profile tool
+  mcpServer.registerTool(
+    "perf_profile",
+    {
+      description:
+        "Measures what this UI costs the engine per frame, and stops there. Returns a single total plus how repeatable it is, deliberately with NO per-phase breakdown, no ranking and no verdict, because trace numbers have no natural stopping point and an agent handed a ranked list will optimise indefinitely against a target nobody set. Whether the measured cost is acceptable is the user's decision: it depends on what else their frame has to do. Run this first. If the user has set a performance budget, this says whether the UI is inside it. If not, it asks them (through the client where supported) or hands you a message to show them verbatim. Never choose a budget yourself and never write the budget file on the user's behalf.",
+      inputSchema: z.object({
+        durationMs: z.number().optional().describe("Length of each capture in milliseconds (default: 2000)"),
+        sampleRuns: z.number().optional().describe("Captures to average, after a discarded warmup capture (default: 3). More runs tighten the repeatability figure."),
+        targetFps: z.number().optional().describe("Frame rate the budget is being reasoned about at, recorded alongside it for context only"),
+      }),
+    },
+    async (params) => {
+      log.info(`Running perf profile`);
+      try {
+        const result = await perfProfile(params);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          isError: !result.success,
+        };
+      } catch (error: any) {
+        return {
+          content: [{ type: "text", text: JSON.stringify({ error: error.message }, null, 2) }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // Perf Trace tool
+  mcpServer.registerTool(
+    "perf_trace",
+    {
+      description:
+        "Breaks the UI's engine cost down by phase (advance, styling, painting, GPU, cross-thread waits) so an over-budget UI can be fixed. Requires a performance budget the user has set; without one it refuses and returns no breakdown, and it will also withhold the breakdown when the UI is already inside budget, because there is then nothing to fix. Each phase is judged against a noise floor measured live in the same session: repeated captures of an unchanged page vary by up to 20%, so only phases both large enough to close the gap and above their own variance are marked actionable. Re-run after a change; a difference smaller than the reported repeatability is not a real improvement.",
+      inputSchema: z.object({
+        durationMs: z.number().optional().describe("Length of each capture in milliseconds (default: 2000, max: 30000)"),
+        systems: z.array(z.string()).optional().describe("Engine systems to trace by name, e.g. ['Layout','Painting']. Defaults to ['All']; the result lists what the connected build offers."),
+        level: z.number().optional().describe("Trace verbosity, 1 to 3 (default: 1)"),
+        sampleRuns: z.number().optional().describe("Captures to average, after a discarded warmup capture (default: 3)"),
+      }),
+    },
+    async (params) => {
+      log.info(`Running perf trace`);
+      try {
+        const result = await perfTrace(params);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          isError: !result.success,
+        };
+      } catch (error: any) {
+        return {
+          content: [{ type: "text", text: JSON.stringify({ error: error.message }, null, 2) }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // Check Memory tool
+  mcpServer.registerTool(
+    "check_memory",
+    {
+      description:
+        "Reads JS heap and GPU texture memory, and with a trigger expression runs a real leak test: it takes a baseline after forcing garbage collection, runs the trigger several times, forces collection again, and reports what did not come back. Gameface does not implement the CDP Memory domain, so this is built on Runtime.getHeapUsage, HeapProfiler.collectGarbage and the engine's image cache stats. Use it to check that opening and closing a panel, or swapping a screen, returns memory to where it started.",
+      inputSchema: z.object({
+        trigger: z.string().optional().describe("JavaScript expression to run repeatedly between the two readings, e.g. \"openInventory(); closeInventory()\". Omit for a single reading with no comparison."),
+        iterations: z.number().optional().describe("How many times to run the trigger (default: 3). More iterations make a small per-iteration leak easier to see."),
+        settleMs: z.number().optional().describe("Milliseconds to wait after each iteration (default: 500)"),
+      }),
+    },
+    async (params) => {
+      log.info(`Checking memory${params.trigger ? " with trigger" : ""}`);
+      try {
+        const result = await checkMemory(params);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          isError: !result.success,
+        };
+      } catch (error: any) {
+        return {
+          content: [{ type: "text", text: JSON.stringify({ error: error.message }, null, 2) }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // Get Image Cache Stats tool
+  mcpServer.registerTool(
+    "get_image_cache_stats",
+    {
+      description:
+        "Reports what the engine's image cache is holding, largest image first. Sizes are decoded GPU cost rather than file size, so a small compressed PNG can be megabytes of texture. Textures are not released when their elements leave the DOM, which makes this the way to catch a screen that accumulates GPU memory as it swaps art. Inline data: URI and SVG assets are not tracked by this cache, so a page using only inline art reports zero.",
+      inputSchema: z.object({
+        topN: z.number().optional().describe("How many of the largest images to list (default: 20)"),
+        releaseUnused: z.boolean().optional().describe("Release unreferenced textures first, which moves them into the orphaned bucket and reveals how much of the resident total is actually reclaimable. This mutates engine state (default: false)."),
+      }),
+    },
+    async (params) => {
+      log.info(`Reading image cache stats`);
+      try {
+        const result = await getImageCacheStats(params);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          isError: !result.success,
+        };
+      } catch (error: any) {
+        return {
+          content: [{ type: "text", text: JSON.stringify({ error: error.message }, null, 2) }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // Get Data Binding Models tool
+  mcpServer.registerTool(
+    "get_data_binding_models",
+    {
+      description:
+        "Lists the Gameface data-binding models the engine currently holds and reads their live values, via the engine's own DOM.getDataBindingModelNames/getDataBindingModels commands (Gameface additions to CDP, not standard Chrome). This shows models registered from the game's C++ side as well as JS mock models: each model is tagged source 'js' when a page global of that name exists, or 'engine' when the engine knows the model but the page does not, which is how a C++-registered model looks from here. Use this to see what data the UI is actually being fed.",
+      inputSchema: z.object({
+        modelName: z.string().optional().describe("Read only this model (default: all models)"),
+        namesOnly: z.boolean().optional().describe("Return only model names and their source, without values. Cheap way to see what exists (default: false)"),
+        maxDepth: z.number().optional().describe("Maximum object nesting depth to return before summarizing (default: 6)"),
+        maxArrayItems: z.number().optional().describe("Maximum array entries to return per array (default: 50)"),
+        maxStringLength: z.number().optional().describe("Maximum string length to return before truncating (default: 500)"),
+      }),
+    },
+    async (params) => {
+      log.info(`Reading data binding models (model: ${params.modelName || "all"})`);
+      try {
+        const result = await getDataBindingModels(params);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          isError: !result.success,
+        };
+      } catch (error: any) {
+        return {
+          content: [{ type: "text", text: JSON.stringify({ error: error.message }, null, 2) }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // Inspect Data Bindings tool
+  mcpServer.registerTool(
+    "inspect_data_bindings",
+    {
+      description:
+        "Debugs data-bind-* attributes on live elements using the engine's DOM.getDataBindingDataForNode command. For each bound attribute it reports every {{ }} expression, what that expression currently evaluates to, its type, whether it has been synchronized into the DOM, and any parse, compile or evaluation error the engine recorded. With no nodeId and no selector it sweeps the whole document for bound elements - the fastest way to find why a screen is blank or showing stale values. Read-only.",
+      inputSchema: z.object({
+        nodeId: z.number().optional().describe("Inspect a single element by node ID (from get_dom_tree or search_dom)"),
+        selector: z.string().optional().describe("Inspect elements matching this CSS selector"),
+        onlyProblems: z.boolean().optional().describe("Report only elements that have a binding error or warning (default: false)"),
+        maxElements: z.number().optional().describe("Maximum elements to inspect (default: 100)"),
+      }),
+    },
+    async (params) => {
+      log.info(`Inspecting data bindings (selector: ${params.selector || "whole document"})`);
+      try {
+        const result = await inspectDataBindings(params);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          isError: !result.success,
+        };
+      } catch (error: any) {
+        return {
+          content: [{ type: "text", text: JSON.stringify({ error: error.message }, null, 2) }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // Set Data Binding Value tool
+  mcpServer.registerTool(
+    "set_data_binding_value",
+    {
+      description:
+        "Writes one scalar value into a bound model and pushes it to the DOM, so you can drive a UI through states (low health, empty inventory, long names) without the game running. The engine's updateDataBindingValue command accepts only scalars - strings, numbers and booleans; for objects, arrays or null use set_data_binding_model. Array element paths like Player.items[0].name are fine. By default this also runs a synchronization pass, because a value write alone does not update the rendered DOM.",
+      inputSchema: z.object({
+        path: z.string().describe("Path to the property, rooted at the model name, e.g. 'Player.health' or 'Player.items[0].name'"),
+        value: z.union([z.string(), z.number(), z.boolean()]).describe("The scalar value to write"),
+        synchronize: z.boolean().optional().describe("Push the change into the DOM after writing it (default: true)"),
+      }),
+    },
+    async (params) => {
+      log.info(`Setting data binding value ${params.path}`);
+      try {
+        const result = await setDataBindingValue(params);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          isError: !result.success,
+        };
+      } catch (error: any) {
+        return {
+          content: [{ type: "text", text: JSON.stringify({ error: error.message }, null, 2) }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // Set Data Binding Model tool
+  mcpServer.registerTool(
+    "set_data_binding_model",
+    {
+      description:
+        "Creates a data-binding model, or replaces an existing one wholesale, then synchronizes it into the DOM. This is how you stand up mock models to build a screen against with no game attached, and how you reset a model to a known state between checks. Unlike engine.createJSModel it both creates models that do not exist yet and overwrites ones that do, including nested objects and arrays. The replacement is total: properties absent from the data you pass are dropped from the model.",
+      inputSchema: z.object({
+        modelName: z.string().optional().describe("Name of a single model to create or replace, e.g. 'Player'. Binding expressions reference it by this name."),
+        data: z.record(z.string(), z.any()).optional().describe("The model's full contents, as an object of properties. Required when modelName is given."),
+        models: z.record(z.string(), z.any()).optional().describe("Several models at once, as a model-name-to-contents object. Use instead of modelName/data."),
+        synchronize: z.boolean().optional().describe("Push the models into the DOM after writing them (default: true)"),
+      }),
+    },
+    async (params) => {
+      log.info(`Writing data binding model(s)`);
+      try {
+        const result = await setDataBindingModel(params);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          isError: !result.success,
+        };
+      } catch (error: any) {
+        return {
+          content: [{ type: "text", text: JSON.stringify({ error: error.message }, null, 2) }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // Sync Data Binding Models tool
+  mcpServer.registerTool(
+    "sync_data_binding_models",
+    {
+      description:
+        "Runs a data-binding synchronization pass so the rendered DOM catches up with the current model values, and waits for the engine to confirm it. Needed after editing a model from JavaScript with eval_js, and after any set_data_binding_value or set_data_binding_model call made with synchronize:false. Models with no page-side object - which is what a C++-registered model looks like - are reported as skipped, since the game drives those itself.",
+      inputSchema: z.object({
+        modelName: z.string().optional().describe("Synchronize only this model (default: all registered models)"),
+        timeout: z.number().optional().describe("How long in milliseconds to wait for the engine to confirm the pass (default: 2000)"),
+      }),
+    },
+    async (params) => {
+      log.info(`Synchronizing data binding models`);
+      try {
+        const result = await syncDataBindingModels(params);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          isError: !result.success,
+        };
+      } catch (error: any) {
+        return {
+          content: [{ type: "text", text: JSON.stringify({ error: error.message }, null, 2) }],
+          isError: true,
+        };
+      }
+    }
+  );
+
   log.info("Tools registered successfully");
 }
 
@@ -620,6 +896,10 @@ async function main() {
   log.info(`Default host: ${config.cdpHost}`);
   
   // Register all tools and resources
+  setBudgetPath(config.perfBudgetFile);
+  setElicitationServer(mcpServer);
+  log.info(`Performance budget file: ${getBudgetPath()}`);
+
   registerTools();
   await registerResources();
   
