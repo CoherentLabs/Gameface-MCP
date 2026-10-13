@@ -115,13 +115,14 @@ function registerTools() {
     "set_player_path",
     {
       description:
-        "Saves the Gameface Player executable path to the user's gameface-mcp config file, so launch_browser finds it in this and every future session. Call it when launch_browser reports that no Player path is configured, or when the user asks to change the Player. Call it without playerPath to have the user prompted for the path directly. Only pass playerPath if the user gave it to you, or the user explicitly allowed you to search for the Player and you found it - never guess a path or search for one on your own initiative.",
+        "Saves the Gameface Player executable path to the user's gameface-mcp config file, so launch_browser finds it in this and every future session. Call it when launch_browser reports that no Player path is configured, or when the user asks to change the Player. Call it without arguments to have the user prompted for the path directly. Only pass playerPath if the user gave it to you, or the user explicitly allowed you to search for the Player and you found it - never guess a path or search for one on your own initiative. Pass search: true to have the server search the machine for Player.exe (up to a minute) - only when the user agreed to that.",
       inputSchema: z.object({
-        playerPath: z.string().optional().describe("Full path to the Player executable. Omit to ask the user directly."),
+        playerPath: z.string().optional().describe("Full path to the Player executable, or the folder containing it. Omit to ask the user directly."),
+        search: z.boolean().optional().describe("Search the user's machine for Player.exe automatically. Only set this if the user agreed to an automatic search."),
       }),
     },
     async (params) => {
-      log.info(`Setting Player path (${params.playerPath ? "provided" : "asking the user"})`);
+      log.info(`Setting Player path (${params.search ? "searching" : params.playerPath ? "provided" : "asking the user"})`);
       const result = await setPlayerPath(params);
       return {
         content: [{ type: "text", text: JSON.stringify(result, null, 2) }],

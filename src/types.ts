@@ -205,6 +205,7 @@ export interface GamefaceRestartResult {
 // Set Player Path Tool
 export interface SetPlayerPathParams {
   playerPath?: string;
+  search?: boolean;
 }
 
 export interface SetPlayerPathResult {
@@ -213,6 +214,8 @@ export interface SetPlayerPathResult {
   playerPath?: string;
   configFile?: string;
   warning?: string;
+  /** Every Player an automatic search found, newest first. */
+  candidates?: string[];
 }
 
 // Shared geometry type for assertion tools

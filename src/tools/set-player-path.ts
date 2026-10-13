@@ -1,25 +1,34 @@
 import { statSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { savePlayerPath } from "../config.js";
-import { elicitPlayerPath } from "../elicitation.js";
+import { canElicit, elicitPlayerChoice, elicitPlayerPath, elicitSearchConsent } from "../elicitation.js";
+import { searchForPlayers } from "../player-search.js";
 import { SetPlayerPathParams, SetPlayerPathResult } from "../types.js";
 import { createLogger } from "../logger.js";
 
 const log = createLogger("SetPlayerPath");
 
-// Shared by every "couldn't get a path from the user" outcome. Searching is
-// allowed, but only on the user's say-so - a path found by the model gets
-// saved and launched on every future session.
-const ASK_OR_SEARCH =
+// When the user couldn't be asked, or didn't answer: the next step is the
+// server's own search, but only with the user's go-ahead.
+const OFFER_SEARCH =
+  "Ask the user for the full path to their Player executable and call set_player_path again with playerPath, " +
+  "or offer to search their machine for it automatically - if they agree, call set_player_path with search: true.";
+
+// After the server's search came up empty, or the user turned it down. A path
+// the model finds gets saved and launched on every future session, so its own
+// search still needs the user's say-so.
+const MANUAL_FALLBACK =
   "Ask the user for the full path to their Player executable and call set_player_path again with playerPath. " +
   "Only search the machine for Player.exe yourself if the user explicitly allows it. If they do: look for files " +
   "named Player.exe under the user's home folder first, then other drives, skipping node_modules, .git, AppData " +
   "and Windows. Gameface Players sit in folders named like Cohtml-<version>-...-Player or <SDK>/Player/. Compare " +
   "versions numerically (3.2.0.64 is newer than 3.2.0.9). Show the user the candidates you found, then save the newest.";
 
-// How many times a mistyped path re-opens the prompt before handing the
-// problem back to the model.
+// How many times a mistyped path re-opens the prompt before only the search
+// is offered.
 const MAX_PROMPT_ATTEMPTS = 3;
+
+const SEARCH_TIMEOUT_MS = 60_000;
 
 function isFile(path: string): boolean {
   try {
@@ -75,18 +84,70 @@ function save(playerFile: string, enteredPath: string): SetPlayerPathResult {
 }
 
 /**
+ * Runs the search and saves what it found: the only hit directly, or the
+ * user's pick when there are several (the newest, if they can't be asked).
+ */
+async function searchAndSave(): Promise<SetPlayerPathResult> {
+  const result = await searchForPlayers(SEARCH_TIMEOUT_MS);
+  const seconds = Math.round(result.elapsedMs / 1000);
+
+  if (result.candidates.length === 0) {
+    const scope = result.timedOut
+      ? `in the ${SEARCH_TIMEOUT_MS / 1000}s time limit (${result.foldersScanned} folders scanned; parts of the disk were not reached)`
+      : `anywhere it looked (${result.foldersScanned} folders, ${seconds}s)`;
+    return {
+      success: false,
+      message: `The automatic search found no Player.exe ${scope}. ${MANUAL_FALLBACK}`,
+    };
+  }
+
+  const paths = result.candidates.map((c) => c.path);
+  const searched = `Searched ${result.foldersScanned} folders in ${seconds}s.`;
+
+  if (result.candidates.length === 1) {
+    const saved = save(paths[0], paths[0]);
+    return saved.success ? { ...saved, message: `${searched} Found one Player. ${saved.message}`, candidates: paths } : saved;
+  }
+
+  if (canElicit()) {
+    const choice = await elicitPlayerChoice(result.candidates);
+    if (choice.status === "accepted") {
+      return { ...save(choice.path, choice.path), candidates: paths };
+    }
+    if (choice.status === "declined") {
+      return {
+        success: false,
+        message: `${searched} Found ${paths.length} Players, but the user declined to pick one. Show them the candidates and ask which to use, then call set_player_path with that playerPath.`,
+        candidates: paths,
+      };
+    }
+  }
+
+  // No way to ask: the newest wins, and the model gets the rest to mention.
+  const saved = save(paths[0], paths[0]);
+  return saved.success
+    ? { ...saved, message: `${searched} Found ${paths.length} Players and saved the newest. Tell the user which one was chosen and that they can switch to another candidate. ${saved.message}`, candidates: paths }
+    : saved;
+}
+
+/**
  * MCP tool implementation for saving the Gameface Player path to the user's
- * config file. With no playerPath the user is asked directly (elicitation),
- * and asked again if what they type doesn't lead to a Player; a client that
+ * config file. With no playerPath the user is asked directly (elicitation):
+ * again with a "search for me" option if what they type doesn't lead to a
+ * Player, and after repeated misses only whether to search. A client that
  * cannot ask falls back to the model asking in chat.
  */
 export async function setPlayerPath(params: SetPlayerPathParams): Promise<SetPlayerPathResult> {
+  if (params.search) {
+    return searchAndSave();
+  }
+
   if (params.playerPath?.trim()) {
     const { resolvedPath, playerFile } = findPlayerFile(params.playerPath);
     if (!playerFile) {
       return {
         success: false,
-        message: `No Player.exe found at ${resolvedPath}, or in a Player subfolder of it. ${ASK_OR_SEARCH}`,
+        message: `No Player.exe found at ${resolvedPath}, or in a Player subfolder of it. ${OFFER_SEARCH}`,
       };
     }
     return save(playerFile, resolvedPath);
@@ -94,19 +155,27 @@ export async function setPlayerPath(params: SetPlayerPathParams): Promise<SetPla
 
   let problem: string | undefined;
   for (let attempt = 1; attempt <= MAX_PROMPT_ATTEMPTS; attempt++) {
-    const outcome = await elicitPlayerPath(problem);
+    // The search option only shows up once the first answer has missed.
+    const outcome = await elicitPlayerPath(problem, attempt > 1);
 
     if (outcome.status === "declined") {
       return {
         success: false,
-        message: `The user declined to enter a Player path. ${ASK_OR_SEARCH}`,
+        message: `The user declined to enter a Player path. ${OFFER_SEARCH}`,
       };
     }
     if (outcome.status === "unavailable") {
       return {
         success: false,
-        message: `${outcome.reason} ${ASK_OR_SEARCH}`,
+        message: `${outcome.reason} ${OFFER_SEARCH}`,
       };
+    }
+    if (outcome.status === "search") {
+      return searchAndSave();
+    }
+    if (outcome.status === "empty") {
+      problem = "No path was entered.\nEnter one, or tick the box to have your machine searched.";
+      continue;
     }
 
     const { resolvedPath, playerFile } = findPlayerFile(outcome.path);
@@ -114,11 +183,18 @@ export async function setPlayerPath(params: SetPlayerPathParams): Promise<SetPla
       return save(playerFile, resolvedPath);
     }
     log.info(`Prompt attempt ${attempt}: no Player found at ${resolvedPath}`);
-    problem = `No Player.exe found at ${resolvedPath}, or in a Player subfolder of it. Check the path and try again.`;
+    problem = `No Player.exe found at ${resolvedPath}\nCheck the path and try again.`;
   }
 
+  const consent = await elicitSearchConsent(`None of the ${MAX_PROMPT_ATTEMPTS} paths entered led to a Player.exe.`);
+  if (consent.status === "accepted") {
+    return searchAndSave();
+  }
   return {
     success: false,
-    message: `The user entered a path with no Player.exe ${MAX_PROMPT_ATTEMPTS} times in a row. ${ASK_OR_SEARCH}`,
+    message:
+      consent.status === "declined"
+        ? `The user entered a path with no Player.exe ${MAX_PROMPT_ATTEMPTS} times, then declined an automatic search. ${MANUAL_FALLBACK}`
+        : `${consent.reason} ${MANUAL_FALLBACK}`,
   };
 }
