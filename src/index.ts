@@ -900,6 +900,56 @@ async function registerResources() {
   log.info(`Resources registered successfully (${ragInfos.length} RAG doc files + index)`);
 }
 
+// Register MCP prompts - clients show these as slash commands (Claude Code:
+// /mcp__<server>__<name>). A prompt only puts text into the conversation;
+// the model then does the work with the tools above.
+function registerPrompts() {
+  mcpServer.registerPrompt(
+    "launch-player",
+    {
+      description: "Launch the Gameface Player, optionally opening a page",
+      argsSchema: {
+        url: z.string().optional().describe("Page to open in the Player"),
+      },
+    },
+    ({ url }) => ({
+      messages: [
+        {
+          role: "user",
+          content: {
+            type: "text",
+            text:
+              `Launch the Gameface Player with the launch_browser tool${url ? ` and open ${url}` : ""}. ` +
+              `If it reports that no Player path is configured, call set_player_path with no arguments, then launch again.`,
+          },
+        },
+      ],
+    })
+  );
+
+  mcpServer.registerPrompt(
+    "change-player-path",
+    {
+      description: "Change which Gameface Player executable this server launches",
+    },
+    () => ({
+      messages: [
+        {
+          role: "user",
+          content: {
+            type: "text",
+            text:
+              "Change the Gameface Player this MCP server launches: call the set_player_path tool with no arguments " +
+              "so I'm prompted for the new path directly. Don't pass a path yourself.",
+          },
+        },
+      ],
+    })
+  );
+
+  log.info("Prompts registered successfully");
+}
+
 // Start server with stdio transport
 async function main() {
   // Parse command-line arguments (skip first two: node and script path)
@@ -924,6 +974,7 @@ async function main() {
 
   registerTools();
   await registerResources();
+  registerPrompts();
   
   const transport = new StdioServerTransport();
   await mcpServer.connect(transport);
