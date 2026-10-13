@@ -931,16 +931,25 @@ function registerPrompts() {
     "change-player-path",
     {
       description: "Change which Gameface Player executable this server launches",
+      argsSchema: {
+        auto: z.string().optional().describe("true to search the machine for Players instead of entering a path"),
+      },
     },
-    () => ({
+    // Prompt arguments always arrive as strings, so this is a yes/no by hand.
+    ({ auto }) => ({
       messages: [
         {
           role: "user",
           content: {
             type: "text",
+            // Worded as the user's consent: set_player_path's description
+            // only allows search: true when the user agreed to it.
             text:
-              "Change the Gameface Player this MCP server launches: call the set_player_path tool with no arguments " +
-              "so I'm prompted for the new path directly. Don't pass a path yourself.",
+              ["true", "yes", "y", "1"].includes(auto?.trim().toLowerCase() ?? "")
+                ?"Change the Gameface Player this MCP server launches. I agree to an automatic search of my machine, " +
+                  "so call the set_player_path tool with search: true."
+                : "Change the Gameface Player this MCP server launches: call the set_player_path tool with no arguments " +
+                  "so I'm prompted for the new path directly. Don't pass a path yourself.",
           },
         },
       ],
