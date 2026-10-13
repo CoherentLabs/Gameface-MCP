@@ -167,6 +167,7 @@ the config file for a specific client or project.
 |---|---|
 | `launch_browser` | Launches Player with remote debugging enabled. Refuses and kills anything that isn't Gameface Player. |
 | `connect_browser` | Connects to an already-running, debuggable Player instance. Same Gameface-only guard. |
+| `set_player_path` | Saves the Player path to the config file (creating it if needed). Called when `launch_browser` finds no path configured; asks the user directly where the client supports elicitation, otherwise the model asks in chat. |
 | `gameface_get_status` | Reports current connection status. |
 | `gameface_restart` | Disconnects, closes, relaunches, and reconnects using the last-used launch/connect parameters. |
 | `navigate` | Navigates the connected view to a different URL. |

@@ -1,6 +1,6 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 
 /**
  * Server configuration, resolved from (lowest to highest precedence):
@@ -34,6 +34,19 @@ interface ConfigFileShape {
 // differs per machine, not per project) shouldn't have to be re-entered into
 // every project's committed mcp.json.
 const DEFAULT_CONFIG_PATH = join(homedir(), ".gameface-mcp", "config.json");
+
+// The config file actually in use (--config can point elsewhere), so that
+// savePlayerPath() writes back to the same file the settings were read from.
+let configPath = DEFAULT_CONFIG_PATH;
+
+// What savePlayerPath() seeds a brand-new config file with - the recommended
+// setup from the README, so first-run users get --enable-gui=false without
+// having to know about it.
+const NEW_CONFIG_FILE_DEFAULTS: ConfigFileShape = {
+  browserArgs: ["--enable-gui=false"],
+  port: 9444,
+  cdpHost: "localhost",
+};
 
 // Default configuration
 let config: ServerConfig = {
@@ -73,7 +86,7 @@ function loadConfigFile(configPath: string): ConfigFileShape {
  * overridden by any CLI flags actually passed.
  */
 export function parseArgs(args: string[]): ServerConfig {
-  const configPath = findConfigFlag(args) || DEFAULT_CONFIG_PATH;
+  configPath = findConfigFlag(args) || DEFAULT_CONFIG_PATH;
   const fileConfig = loadConfigFile(configPath);
 
   const config: ServerConfig = {
@@ -142,16 +155,16 @@ export function parseArgs(args: string[]): ServerConfig {
  */
 function printHelp(): void {
   console.error(`
-Chrome CDP MCP Server - Command Line Options
+Gameface MCP Server - Command Line Options
 
-Usage: chrome-cdp-mcp [options]
+Usage: gameface-mcp [options]
 
 Options:
-  -b, --browser-executable <path>   Path to browser executable (Chrome, Edge, Brave, etc.)
+  -b, --browser-executable <path>   Path to the Gameface Player executable
                                      If not specified, tools require explicit path
-  
-  -a, --browser-args <args>         Comma-separated browser arguments
-                                     Example: "--headless=new,--disable-gpu"
+
+  -a, --browser-args <args>         Comma-separated Player arguments
+                                     Example: "--enable-gui=false"
                                      Default: none
   
   -p, --port <port>                 Remote debugging port
@@ -185,17 +198,17 @@ Config file:
   The file and every field in it are optional.
 
 Examples:
-  # Use default Chrome location
-  chrome-cdp-mcp --browser-executable "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
+  # Point at a specific Player build
+  gameface-mcp --browser-executable "D:\\path\\to\\sdk\\Player\\Player.exe"
 
   # Launch with custom args and port
-  chrome-cdp-mcp -b chrome.exe -a "--headless=new,--disable-gpu" -p 9223
+  gameface-mcp -b Player.exe -a "--enable-gui=false" -p 9223
 
-  # Connect to existing browser on custom port
-  chrome-cdp-mcp -p 9223
+  # Connect to an already-running Player on a custom port
+  gameface-mcp -p 9223
 
   # Rely entirely on ~/.gameface-mcp/config.json - no CLI flags needed
-  chrome-cdp-mcp
+  gameface-mcp
 
 Notes:
   - stdout is reserved for MCP protocol communication
@@ -216,4 +229,46 @@ export function setConfig(newConfig: ServerConfig): void {
  */
 export function getConfig(): ServerConfig {
   return config;
+}
+
+/**
+ * Gets the path of the config file in use
+ */
+export function getConfigPath(): string {
+  return configPath;
+}
+
+/**
+ * Persists the Player path to the config file in use, keeping every other
+ * field in it, and applies it to the running server. Returns the file written.
+ */
+export function savePlayerPath(playerPath: string): string {
+  let fileConfig: ConfigFileShape;
+  let isNewFile = false;
+  try {
+    fileConfig = JSON.parse(readFileSync(configPath, "utf8"));
+  } catch (error: any) {
+    // A missing file is the normal first-run case. An unparseable one is not:
+    // overwriting it would silently drop whatever the user had in it.
+    if (error.code !== "ENOENT") {
+      throw new Error(`Config file at ${configPath} exists but could not be read (${error.message}). Fix or remove it, then try again.`);
+    }
+    // browserExecutable first, so a new file reads like the README example.
+    fileConfig = { browserExecutable: playerPath, ...NEW_CONFIG_FILE_DEFAULTS };
+    isNewFile = true;
+  }
+
+  fileConfig.browserExecutable = playerPath;
+  mkdirSync(dirname(configPath), { recursive: true });
+  writeFileSync(configPath, JSON.stringify(fileConfig, null, 2) + "\n", "utf8");
+
+  // Mutate rather than replace: registerTools() holds on to this same object,
+  // so launch_browser picks the new path up without a restart.
+  config.browserExecutable = playerPath;
+  // The server started without this file, so it never read the default args.
+  // Apply them now, unless --browser-args already set some.
+  if (isNewFile && config.browserArgs.length === 0) {
+    config.browserArgs = [...NEW_CONFIG_FILE_DEFAULTS.browserArgs!];
+  }
+  return configPath;
 }

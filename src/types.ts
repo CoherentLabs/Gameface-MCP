@@ -202,6 +202,19 @@ export interface GamefaceRestartResult {
   pid?: number;
 }
 
+// Set Player Path Tool
+export interface SetPlayerPathParams {
+  playerPath?: string;
+}
+
+export interface SetPlayerPathResult {
+  success: boolean;
+  message: string;
+  playerPath?: string;
+  configFile?: string;
+  warning?: string;
+}
+
 // Shared geometry type for assertion tools
 export interface Rect {
   x: number;

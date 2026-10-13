@@ -15,6 +15,7 @@ import { navigate } from "./tools/navigate.js";
 import { evalJs } from "./tools/eval-js.js";
 import { gamefaceGetStatus } from "./tools/gameface-get-status.js";
 import { gamefaceRestart } from "./tools/gameface-restart.js";
+import { setPlayerPath } from "./tools/set-player-path.js";
 import { assertTextFits, assertNoOverlap, assertWithinParent } from "./tools/assertions.js";
 import { searchGamefaceDocs } from "./tools/search-gameface-docs.js";
 import { perfLint } from "./tools/perf-lint.js";
@@ -39,7 +40,7 @@ import { setElicitationServer } from "./elicitation.js";
 // Create server instance
 const mcpServer = new McpServer(
   {
-    name: "chrome-cdp-mcp-server",
+    name: "gameface-mcp",
     version: "1.0.0",
   },
   {
@@ -86,7 +87,7 @@ function registerTools() {
             type: "text", 
             text: JSON.stringify({
               success: false,
-              message: "executablePath is required. Provide it in the tool call or via --browser-executable CLI option."
+              message: "No Gameface Player path is configured. Call set_player_path without arguments so the user is asked for it, then call launch_browser again."
             }, null, 2)
           }],
           isError: true,
@@ -102,6 +103,26 @@ function registerTools() {
 
       log.info(`Launching browser: ${mergedParams.executablePath}`);
       const result = await launchBrowser(mergedParams);
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        isError: !result.success,
+      };
+    }
+  );
+
+  // Set Player Path tool
+  mcpServer.registerTool(
+    "set_player_path",
+    {
+      description:
+        "Saves the Gameface Player executable path to the user's gameface-mcp config file, so launch_browser finds it in this and every future session. Call it when launch_browser reports that no Player path is configured, or when the user asks to change the Player. Call it without playerPath to have the user prompted for the path directly. Only pass playerPath if the user gave it to you, or the user explicitly allowed you to search for the Player and you found it - never guess a path or search for one on your own initiative.",
+      inputSchema: z.object({
+        playerPath: z.string().optional().describe("Full path to the Player executable. Omit to ask the user directly."),
+      }),
+    },
+    async (params) => {
+      log.info(`Setting Player path (${params.playerPath ? "provided" : "asking the user"})`);
+      const result = await setPlayerPath(params);
       return {
         content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
         isError: !result.success,
@@ -885,7 +906,7 @@ async function main() {
   setConfig(config);
 
   // Log configuration
-  log.info("Starting Chrome CDP MCP Server");
+  log.info("Starting Gameface MCP Server");
   if (config.browserExecutable) {
     log.info(`Default browser: ${config.browserExecutable}`);
   }

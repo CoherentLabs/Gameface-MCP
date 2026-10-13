@@ -105,3 +105,59 @@ export async function elicitBudget(measuredMs: number, spreadPct: number): Promi
     return { status: "unavailable", reason: `The elicitation request failed: ${error.message}` };
   }
 }
+
+export type ElicitPathOutcome =
+  | { status: "accepted"; path: string }
+  | { status: "declined" }
+  | { status: "unavailable"; reason: string };
+
+/**
+ * Asks the user for the Player executable path. Same reasoning as the budget:
+ * the path gets saved to the user's config and launched on every session, so
+ * it should come from the user rather than from a model's guess.
+ */
+export async function elicitPlayerPath(): Promise<ElicitPathOutcome> {
+  if (!mcpServer) {
+    return { status: "unavailable", reason: "No MCP server reference available." };
+  }
+  if (!canElicit()) {
+    return { status: "unavailable", reason: "This client does not support elicitation, so the user cannot be asked directly." };
+  }
+
+  try {
+    const result = await mcpServer.server.elicitInput(
+      {
+        message:
+          `No Gameface Player path is configured yet. Enter the full path to your Player executable ` +
+          `(e.g. D:/GamefaceSDK/Player/Player.exe). It is saved to your gameface-mcp config, so you only need to do this once.`,
+        requestedSchema: {
+          type: "object",
+          properties: {
+            playerPath: {
+              type: "string",
+              title: "Player executable path",
+              description: "Full path to Player.exe - usually in a Player subfolder of your Gameface SDK, not the SDK root.",
+            },
+          },
+          required: ["playerPath"],
+        },
+      },
+      { timeout: ELICIT_TIMEOUT_MS }
+    );
+
+    if (result.action !== "accept") {
+      log.info(`User ${result.action}ed the Player path request`);
+      return { status: "declined" };
+    }
+
+    const value = (result.content as any)?.playerPath;
+    if (typeof value !== "string" || !value.trim()) {
+      return { status: "unavailable", reason: "The client returned an empty Player path." };
+    }
+
+    return { status: "accepted", path: value.trim() };
+  } catch (error: any) {
+    log.warn(`Elicitation failed: ${error.message}`);
+    return { status: "unavailable", reason: `The elicitation request failed: ${error.message}` };
+  }
+}
