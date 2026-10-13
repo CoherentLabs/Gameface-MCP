@@ -114,9 +114,10 @@ export type ElicitPathOutcome =
 /**
  * Asks the user for the Player executable path. Same reasoning as the budget:
  * the path gets saved to the user's config and launched on every session, so
- * it should come from the user rather than from a model's guess.
+ * it should come from the user rather than from a model's guess. `problem`
+ * is shown above the usual prompt when asking again after a bad path.
  */
-export async function elicitPlayerPath(): Promise<ElicitPathOutcome> {
+export async function elicitPlayerPath(problem?: string): Promise<ElicitPathOutcome> {
   if (!mcpServer) {
     return { status: "unavailable", reason: "No MCP server reference available." };
   }
@@ -128,8 +129,10 @@ export async function elicitPlayerPath(): Promise<ElicitPathOutcome> {
     const result = await mcpServer.server.elicitInput(
       {
         message:
+          (problem ? `${problem}\n\n` : "") +
           `No Gameface Player path is configured yet. Enter the full path to your Player executable ` +
-          `(e.g. D:/GamefaceSDK/Player/Player.exe). It is saved to your gameface-mcp config, so you only need to do this once.`,
+          `(e.g. D:/GamefaceSDK/Player/Player.exe) or the folder containing it. ` +
+          `It is saved to your gameface-mcp config, so you only need to do this once.`,
         requestedSchema: {
           type: "object",
           properties: {

@@ -1,5 +1,5 @@
 import { statSync } from "node:fs";
-import { basename, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { savePlayerPath } from "../config.js";
 import { elicitPlayerPath } from "../elicitation.js";
 import { SetPlayerPathParams, SetPlayerPathResult } from "../types.js";
@@ -17,16 +17,84 @@ const ASK_OR_SEARCH =
   "and Windows. Gameface Players sit in folders named like Cohtml-<version>-...-Player or <SDK>/Player/. Compare " +
   "versions numerically (3.2.0.64 is newer than 3.2.0.9). Show the user the candidates you found, then save the newest.";
 
+// How many times a mistyped path re-opens the prompt before handing the
+// problem back to the model.
+const MAX_PROMPT_ATTEMPTS = 3;
+
+function isFile(path: string): boolean {
+  try {
+    return statSync(path).isFile();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Turns what the user typed into the Player executable, or null if there is
+ * none. A folder is accepted too: pointing at the SDK root instead of its
+ * Player subfolder is the most common mistake, so both are checked.
+ */
+function findPlayerFile(input: string): { resolvedPath: string; playerFile: string | null } {
+  // Windows Explorer's "Copy as path" wraps the path in quotes.
+  const resolvedPath = resolve(input.trim().replace(/^"(.*)"$/, "$1"));
+
+  if (isFile(resolvedPath)) {
+    return { resolvedPath, playerFile: resolvedPath };
+  }
+
+  const candidates = [join(resolvedPath, "Player.exe"), join(resolvedPath, "Player", "Player.exe")];
+  return { resolvedPath, playerFile: candidates.find(isFile) ?? null };
+}
+
+function save(playerFile: string, enteredPath: string): SetPlayerPathResult {
+  // Not a hard failure: launch_browser verifies the Gameface identity anyway,
+  // and a renamed Player is still a Player.
+  const warning = /^player(\.exe)?$/i.test(basename(playerFile))
+    ? undefined
+    : `${basename(playerFile)} is not named Player.exe. launch_browser will refuse it if it is not a Gameface Player.`;
+
+  const foundInFolder = playerFile !== enteredPath ? ` (found inside the folder ${enteredPath})` : "";
+
+  try {
+    const configFile = savePlayerPath(playerFile);
+    log.info(`Saved Player path ${playerFile} to ${configFile}`);
+    return {
+      success: true,
+      message: `Saved the Player path ${playerFile}${foundInFolder} to ${configFile}. launch_browser will use it from now on, in this and future sessions.`,
+      playerPath: playerFile,
+      configFile,
+      warning,
+    };
+  } catch (error: any) {
+    log.error(`Failed to save Player path: ${error.message}`);
+    return {
+      success: false,
+      message: error.message,
+    };
+  }
+}
+
 /**
  * MCP tool implementation for saving the Gameface Player path to the user's
- * config file. With no playerPath the user is asked directly (elicitation);
- * a client that cannot ask falls back to the model asking in chat.
+ * config file. With no playerPath the user is asked directly (elicitation),
+ * and asked again if what they type doesn't lead to a Player; a client that
+ * cannot ask falls back to the model asking in chat.
  */
 export async function setPlayerPath(params: SetPlayerPathParams): Promise<SetPlayerPathResult> {
-  let playerPath = params.playerPath;
+  if (params.playerPath?.trim()) {
+    const { resolvedPath, playerFile } = findPlayerFile(params.playerPath);
+    if (!playerFile) {
+      return {
+        success: false,
+        message: `No Player.exe found at ${resolvedPath}, or in a Player subfolder of it. ${ASK_OR_SEARCH}`,
+      };
+    }
+    return save(playerFile, resolvedPath);
+  }
 
-  if (!playerPath?.trim()) {
-    const outcome = await elicitPlayerPath();
+  let problem: string | undefined;
+  for (let attempt = 1; attempt <= MAX_PROMPT_ATTEMPTS; attempt++) {
+    const outcome = await elicitPlayerPath(problem);
 
     if (outcome.status === "declined") {
       return {
@@ -40,46 +108,17 @@ export async function setPlayerPath(params: SetPlayerPathParams): Promise<SetPla
         message: `${outcome.reason} ${ASK_OR_SEARCH}`,
       };
     }
-    playerPath = outcome.path;
+
+    const { resolvedPath, playerFile } = findPlayerFile(outcome.path);
+    if (playerFile) {
+      return save(playerFile, resolvedPath);
+    }
+    log.info(`Prompt attempt ${attempt}: no Player found at ${resolvedPath}`);
+    problem = `No Player.exe found at ${resolvedPath}, or in a Player subfolder of it. Check the path and try again.`;
   }
 
-  // Windows Explorer's "Copy as path" wraps the path in quotes.
-  const resolvedPath = resolve(playerPath.trim().replace(/^"(.*)"$/, "$1"));
-
-  let isFile = false;
-  try {
-    isFile = statSync(resolvedPath).isFile();
-  } catch {
-    // Missing path - reported below, same as a directory.
-  }
-  if (!isFile) {
-    return {
-      success: false,
-      message: `No file found at ${resolvedPath}. Player.exe usually lives in a Player subfolder of the Gameface SDK, not the SDK root. ${ASK_OR_SEARCH}`,
-    };
-  }
-
-  // Not a hard failure: launch_browser verifies the Gameface identity anyway,
-  // and a renamed Player is still a Player.
-  const warning = /^player(\.exe)?$/i.test(basename(resolvedPath))
-    ? undefined
-    : `${basename(resolvedPath)} is not named Player.exe. launch_browser will refuse it if it is not a Gameface Player.`;
-
-  try {
-    const configFile = savePlayerPath(resolvedPath);
-    log.info(`Saved Player path ${resolvedPath} to ${configFile}`);
-    return {
-      success: true,
-      message: `Saved the Player path to ${configFile}. launch_browser will use it from now on, in this and future sessions.`,
-      playerPath: resolvedPath,
-      configFile,
-      warning,
-    };
-  } catch (error: any) {
-    log.error(`Failed to save Player path: ${error.message}`);
-    return {
-      success: false,
-      message: error.message,
-    };
-  }
+  return {
+    success: false,
+    message: `The user entered a path with no Player.exe ${MAX_PROMPT_ATTEMPTS} times in a row. ${ASK_OR_SEARCH}`,
+  };
 }
