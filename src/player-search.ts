@@ -7,7 +7,8 @@
  * moving on to the other drives if nothing turned up there, and gives up at a
  * deadline rather than running for however long a full disk takes.
  *
- * Only ever runs because the user asked for it (set_player_path's search).
+ * Only ever runs because the user asked for it (set_player_path's or
+ * add_players' search), or inside a folder the user pointed at (add_players).
  */
 
 import { existsSync } from "node:fs";
@@ -65,6 +66,19 @@ function versionFromPath(path: string): string | null {
   return matches ? matches[matches.length - 1] : null;
 }
 
+/**
+ * Labels Player paths with the version in their folder name, newest first;
+ * paths without one go last, in their original order.
+ */
+export function toCandidates(paths: string[]): PlayerCandidate[] {
+  return paths
+    .map((path) => ({ path, version: versionFromPath(path) }))
+    .sort((a, b) => {
+      if (a.version && b.version) return compareCohtmlVersions(b.version, a.version);
+      return a.version ? -1 : b.version ? 1 : 0;
+    });
+}
+
 async function forEachWithConcurrency<T>(items: T[], limit: number, fn: (item: T) => Promise<void>): Promise<void> {
   let next = 0;
   const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
@@ -75,7 +89,15 @@ async function forEachWithConcurrency<T>(items: T[], limit: number, fn: (item: T
   await Promise.all(workers);
 }
 
-export async function searchForPlayers(timeoutMs: number): Promise<PlayerSearchResult> {
+/**
+ * Walks `roots` in order (by default the home folder, then every drive),
+ * stopping after the first root that turns up any Players.
+ */
+export async function searchForPlayers(
+  timeoutMs: number,
+  roots: string[] = searchRoots(),
+  maxDepth: number = MAX_DEPTH
+): Promise<PlayerSearchResult> {
   const start = Date.now();
   const deadline = start + timeoutMs;
   const found = new Map<string, string>();
@@ -84,9 +106,9 @@ export async function searchForPlayers(timeoutMs: number): Promise<PlayerSearchR
   const key = (p: string) => (process.platform === "win32" ? p.toLowerCase() : p);
   let foldersScanned = 0;
 
-  for (const root of searchRoots()) {
+  for (const root of roots) {
     let level = [root];
-    for (let depth = 0; depth <= MAX_DEPTH && level.length > 0 && Date.now() < deadline; depth++) {
+    for (let depth = 0; depth <= maxDepth && level.length > 0 && Date.now() < deadline; depth++) {
       const nextLevel: string[] = [];
       await forEachWithConcurrency(level, CONCURRENCY, async (dir) => {
         if (Date.now() >= deadline || visited.has(key(dir))) return;
@@ -117,12 +139,7 @@ export async function searchForPlayers(timeoutMs: number): Promise<PlayerSearchR
     if (found.size > 0 || Date.now() >= deadline) break;
   }
 
-  const candidates = [...found.values()]
-    .map((path) => ({ path, version: versionFromPath(path) }))
-    .sort((a, b) => {
-      if (a.version && b.version) return compareCohtmlVersions(b.version, a.version);
-      return a.version ? -1 : b.version ? 1 : 0;
-    });
+  const candidates = toCandidates([...found.values()]);
 
   const result = { candidates, timedOut: Date.now() >= deadline, foldersScanned, elapsedMs: Date.now() - start };
   log.info(`Found ${candidates.length} Player(s) in ${foldersScanned} folders, ${result.elapsedMs}ms${result.timedOut ? " (hit the time limit)" : ""}`);

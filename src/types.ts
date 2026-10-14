@@ -218,6 +218,21 @@ export interface SetPlayerPathResult {
   candidates?: string[];
 }
 
+// Add Players Tool
+export interface AddPlayersParams {
+  search?: boolean;
+  paths?: string[];
+}
+
+export interface AddPlayersResult {
+  success: boolean;
+  message: string;
+  /** Players newly added to the list. */
+  added?: string[];
+  /** Paths that didn't lead to a Player.exe. */
+  invalid?: string[];
+}
+
 // Shared geometry type for assertion tools
 export interface Rect {
   x: number;

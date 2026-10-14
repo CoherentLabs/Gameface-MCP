@@ -156,11 +156,15 @@ export type ElicitPathOutcome =
  * it should come from the user rather than from a model's guess. `problem`
  * replaces the opening message when asking again after a bad path, and
  * `offerSearch` adds the option of letting the server look for it instead.
+ * `currentPath` is the default being replaced, if there is one.
  */
-export async function elicitPlayerPath(problem?: string, offerSearch = false): Promise<ElicitPathOutcome> {
+export async function elicitPlayerPath(problem?: string, offerSearch = false, currentPath?: string): Promise<ElicitPathOutcome> {
+  const opening = currentPath
+    ? `Change your default Gameface Player.\nCurrent: ${currentPath}`
+    : "No Gameface Player path is configured yet.\nIt's saved to your gameface-mcp config, so you only do this once.";
   const answer = await ask(
     "Player path",
-    problem ?? "No Gameface Player path is configured yet.\nIt's saved to your gameface-mcp config, so you only do this once.",
+    problem ?? opening,
     {
       type: "object",
       properties: {
@@ -191,6 +195,35 @@ export async function elicitPlayerPath(problem?: string, offerSearch = false): P
 }
 
 /**
+ * Asks for Players to add to the players list - no machine-wide search on
+ * offer, this is the route for users who'd rather not have their machine
+ * scanned. Several paths can go in the one field, separated by ";", and a
+ * folder of Players is searched inside (only that folder).
+ */
+export async function elicitPlayerPaths(problem?: string): Promise<{ status: "accepted"; paths: string[] } | { status: "empty" } | NotAnswered> {
+  const answer = await ask(
+    "Player paths",
+    problem ?? "Add Gameface Players to your list, to pick from when launching.\nA folder holding several Players adds them all.",
+    {
+      type: "object",
+      properties: {
+        playerPaths: {
+          type: "string",
+          title: "Player paths",
+          description: "Player.exe, its folder, or a folder of Players; separate several with ;",
+        },
+      },
+      required: ["playerPaths"],
+    }
+  );
+  if (answer.status !== "answered") return answer;
+
+  const value = answer.content.playerPaths;
+  const paths = typeof value === "string" ? value.split(";").map((p) => p.trim()).filter(Boolean) : [];
+  return paths.length > 0 ? { status: "accepted", paths } : { status: "empty" };
+}
+
+/**
  * The last question after repeated bad paths: only whether to search.
  */
 export async function elicitSearchConsent(problem: string): Promise<{ status: "accepted" } | NotAnswered> {
@@ -210,23 +243,28 @@ export async function elicitSearchConsent(problem: string): Promise<{ status: "a
 }
 
 /**
- * Lets the user pick between several Players a search found, newest first and
- * preselected.
+ * Lets the user pick one Player from a dropdown - after a search, or at launch.
+ * `defaultPath` is marked and preselected; without it the first candidate is.
  */
 export async function elicitPlayerChoice(
-  candidates: { path: string; version: string | null }[]
+  candidates: { path: string; version: string | null }[],
+  message: string,
+  defaultPath?: string
 ): Promise<{ status: "accepted"; path: string } | NotAnswered> {
   const answer = await ask(
     "Player choice",
-    `Found ${candidates.length} Gameface Players on your machine. Pick the one to use - the newest is selected.`,
+    message,
     {
       type: "object",
       properties: {
         playerPath: {
           type: "string",
           title: "Player",
-          oneOf: candidates.map((c) => ({ const: c.path, title: c.version ? `${c.version} - ${c.path}` : c.path })),
-          default: candidates[0].path,
+          oneOf: candidates.map((c) => ({
+            const: c.path,
+            title: (c.version ? `${c.version} - ${c.path}` : c.path) + (c.path === defaultPath ? " (default)" : ""),
+          })),
+          default: defaultPath ?? candidates[0].path,
         },
       },
       required: ["playerPath"],

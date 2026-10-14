@@ -19,6 +19,11 @@ export interface ServerConfig {
    * launched in rather than the home-directory config folder.
    */
   perfBudgetFile?: string;
+  /**
+   * Other Players the user can pick from at launch (launch_browser's
+   * choosePlayer). browserExecutable stays the default for every plain launch.
+   */
+  players: string[];
 }
 
 interface ConfigFileShape {
@@ -27,6 +32,7 @@ interface ConfigFileShape {
   port?: number;
   cdpHost?: string;
   perfBudgetFile?: string;
+  players?: string[];
 }
 
 // One config file per developer machine, not per-project - this server is
@@ -54,6 +60,7 @@ let config: ServerConfig = {
   browserArgs: [],
   port: 9444,
   cdpHost: "localhost",
+  players: [],
 };
 
 function findConfigFlag(args: string[]): string | undefined {
@@ -95,6 +102,7 @@ export function parseArgs(args: string[]): ServerConfig {
     port: fileConfig.port ?? 9444,
     cdpHost: fileConfig.cdpHost || "localhost",
     perfBudgetFile: fileConfig.perfBudgetFile,
+    players: Array.isArray(fileConfig.players) ? fileConfig.players : [],
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -239,10 +247,10 @@ export function getConfigPath(): string {
 }
 
 /**
- * Persists the Player path to the config file in use, keeping every other
- * field in it, and applies it to the running server. Returns the file written.
+ * Read-modify-write of the config file in use, keeping every field `update`
+ * doesn't touch. A missing file is created from NEW_CONFIG_FILE_DEFAULTS.
  */
-export function savePlayerPath(playerPath: string): string {
+function updateConfigFile(update: (fileConfig: ConfigFileShape) => void): void {
   let fileConfig: ConfigFileShape;
   let isNewFile = false;
   try {
@@ -254,21 +262,52 @@ export function savePlayerPath(playerPath: string): string {
       throw new Error(`Config file at ${configPath} exists but could not be read (${error.message}). Fix or remove it, then try again.`);
     }
     // browserExecutable first, so a new file reads like the README example.
-    fileConfig = { browserExecutable: playerPath, ...NEW_CONFIG_FILE_DEFAULTS };
+    fileConfig = { browserExecutable: undefined, ...NEW_CONFIG_FILE_DEFAULTS };
     isNewFile = true;
   }
 
-  fileConfig.browserExecutable = playerPath;
+  update(fileConfig);
   mkdirSync(dirname(configPath), { recursive: true });
   writeFileSync(configPath, JSON.stringify(fileConfig, null, 2) + "\n", "utf8");
 
-  // Mutate rather than replace: registerTools() holds on to this same object,
-  // so launch_browser picks the new path up without a restart.
-  config.browserExecutable = playerPath;
   // The server started without this file, so it never read the default args.
   // Apply them now, unless --browser-args already set some.
   if (isNewFile && config.browserArgs.length === 0) {
     config.browserArgs = [...NEW_CONFIG_FILE_DEFAULTS.browserArgs!];
   }
+}
+
+/**
+ * Persists the Player path to the config file in use, keeping every other
+ * field in it, and applies it to the running server. Returns the file written.
+ */
+export function savePlayerPath(playerPath: string): string {
+  updateConfigFile((fileConfig) => {
+    fileConfig.browserExecutable = playerPath;
+  });
+  // Mutate rather than replace: registerTools() holds on to this same object,
+  // so launch_browser picks the new path up without a restart.
+  config.browserExecutable = playerPath;
   return configPath;
+}
+
+/**
+ * Adds Players to the `players` list in the config file (skipping ones already
+ * there) and to the running server. Returns the ones that were new.
+ */
+export function addPlayers(paths: string[]): string[] {
+  const key = (p: string) => (process.platform === "win32" ? p.toLowerCase() : p);
+  const newOnes = (existing: string[]) => {
+    const seen = new Set(existing.map(key));
+    return paths.filter((p) => !seen.has(key(p)) && !!seen.add(key(p)));
+  };
+
+  let added: string[] = [];
+  updateConfigFile((fileConfig) => {
+    const existing = Array.isArray(fileConfig.players) ? fileConfig.players : [];
+    added = newOnes(existing);
+    fileConfig.players = [...existing, ...added];
+  });
+  config.players = [...config.players, ...newOnes(config.players)];
+  return added;
 }

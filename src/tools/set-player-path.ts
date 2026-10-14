@@ -1,8 +1,7 @@
-import { statSync } from "node:fs";
-import { basename, join, resolve } from "node:path";
-import { savePlayerPath } from "../config.js";
+import { basename } from "node:path";
+import { getConfig, savePlayerPath } from "../config.js";
 import { canElicit, elicitPlayerChoice, elicitPlayerPath, elicitSearchConsent } from "../elicitation.js";
-import { searchForPlayers } from "../player-search.js";
+import { findPlayerFile, searchAndAddPlayers, SEARCH_TIMEOUT_MS } from "../player-paths.js";
 import { SetPlayerPathParams, SetPlayerPathResult } from "../types.js";
 import { createLogger } from "../logger.js";
 
@@ -26,34 +25,7 @@ const MANUAL_FALLBACK =
 
 // How many times a mistyped path re-opens the prompt before only the search
 // is offered.
-const MAX_PROMPT_ATTEMPTS = 3;
-
-const SEARCH_TIMEOUT_MS = 60_000;
-
-function isFile(path: string): boolean {
-  try {
-    return statSync(path).isFile();
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Turns what the user typed into the Player executable, or null if there is
- * none. A folder is accepted too: pointing at the SDK root instead of its
- * Player subfolder is the most common mistake, so both are checked.
- */
-function findPlayerFile(input: string): { resolvedPath: string; playerFile: string | null } {
-  // Windows Explorer's "Copy as path" wraps the path in quotes.
-  const resolvedPath = resolve(input.trim().replace(/^"(.*)"$/, "$1"));
-
-  if (isFile(resolvedPath)) {
-    return { resolvedPath, playerFile: resolvedPath };
-  }
-
-  const candidates = [join(resolvedPath, "Player.exe"), join(resolvedPath, "Player", "Player.exe")];
-  return { resolvedPath, playerFile: candidates.find(isFile) ?? null };
-}
+export const MAX_PROMPT_ATTEMPTS = 3;
 
 function save(playerFile: string, enteredPath: string): SetPlayerPathResult {
   // Not a hard failure: launch_browser verifies the Gameface identity anyway,
@@ -88,36 +60,39 @@ function save(playerFile: string, enteredPath: string): SetPlayerPathResult {
  * user's pick when there are several (the newest, if they can't be asked).
  */
 async function searchAndSave(): Promise<SetPlayerPathResult> {
-  const result = await searchForPlayers(SEARCH_TIMEOUT_MS);
-  const seconds = Math.round(result.elapsedMs / 1000);
+  // Every Player found goes into the players list for launch_browser's
+  // choosePlayer, whichever one ends up the default.
+  const { result, note: searched } = await searchAndAddPlayers();
 
   if (result.candidates.length === 0) {
     const scope = result.timedOut
-      ? `in the ${SEARCH_TIMEOUT_MS / 1000}s time limit (${result.foldersScanned} folders scanned; parts of the disk were not reached)`
-      : `anywhere it looked (${result.foldersScanned} folders, ${seconds}s)`;
+      ? `in the ${SEARCH_TIMEOUT_MS / 1000}s time limit (parts of the disk were not reached)`
+      : "anywhere it looked";
     return {
       success: false,
-      message: `The automatic search found no Player.exe ${scope}. ${MANUAL_FALLBACK}`,
+      message: `${searched} The automatic search found no Player.exe ${scope}. ${MANUAL_FALLBACK}`,
     };
   }
 
   const paths = result.candidates.map((c) => c.path);
-  const searched = `Searched ${result.foldersScanned} folders in ${seconds}s.`;
 
   if (result.candidates.length === 1) {
     const saved = save(paths[0], paths[0]);
-    return saved.success ? { ...saved, message: `${searched} Found one Player. ${saved.message}`, candidates: paths } : saved;
+    return saved.success ? { ...saved, message: `${searched} ${saved.message}`, candidates: paths } : saved;
   }
 
   if (canElicit()) {
-    const choice = await elicitPlayerChoice(result.candidates);
+    const choice = await elicitPlayerChoice(
+      result.candidates,
+      `Found ${paths.length} Gameface Players on your machine. Pick your default - the newest is selected.`
+    );
     if (choice.status === "accepted") {
       return { ...save(choice.path, choice.path), candidates: paths };
     }
     if (choice.status === "declined") {
       return {
         success: false,
-        message: `${searched} Found ${paths.length} Players, but the user declined to pick one. Show them the candidates and ask which to use, then call set_player_path with that playerPath.`,
+        message: `${searched} The user declined to pick a default. Show them the candidates and ask which to use, then call set_player_path with that playerPath.`,
         candidates: paths,
       };
     }
@@ -126,7 +101,7 @@ async function searchAndSave(): Promise<SetPlayerPathResult> {
   // No way to ask: the newest wins, and the model gets the rest to mention.
   const saved = save(paths[0], paths[0]);
   return saved.success
-    ? { ...saved, message: `${searched} Found ${paths.length} Players and saved the newest. Tell the user which one was chosen and that they can switch to another candidate. ${saved.message}`, candidates: paths }
+    ? { ...saved, message: `${searched} Saved the newest as the default. Tell the user which one was chosen and that they can switch to another candidate. ${saved.message}`, candidates: paths }
     : saved;
 }
 
@@ -156,7 +131,7 @@ export async function setPlayerPath(params: SetPlayerPathParams): Promise<SetPla
   let problem: string | undefined;
   for (let attempt = 1; attempt <= MAX_PROMPT_ATTEMPTS; attempt++) {
     // The search option only shows up once the first answer has missed.
-    const outcome = await elicitPlayerPath(problem, attempt > 1);
+    const outcome = await elicitPlayerPath(problem, attempt > 1, getConfig().browserExecutable);
 
     if (outcome.status === "declined") {
       return {

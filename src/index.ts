@@ -16,6 +16,8 @@ import { evalJs } from "./tools/eval-js.js";
 import { gamefaceGetStatus } from "./tools/gameface-get-status.js";
 import { gamefaceRestart } from "./tools/gameface-restart.js";
 import { setPlayerPath } from "./tools/set-player-path.js";
+import { choosePlayer, chooseDefaultFromPlayers } from "./tools/choose-player.js";
+import { addPlayersToList } from "./tools/add-players.js";
 import { assertTextFits, assertNoOverlap, assertWithinParent } from "./tools/assertions.js";
 import { searchGamefaceDocs } from "./tools/search-gameface-docs.js";
 import { perfLint } from "./tools/perf-lint.js";
@@ -70,28 +72,33 @@ function registerTools() {
   mcpServer.registerTool(
     "launch_browser",
     {
-      description: "Launches a Chromium-based browser with remote debugging enabled",
+      description: "Launches the Gameface Player with remote debugging enabled - the configured default unless told otherwise. Pass choosePlayer: true to let the user pick from their configured Players.",
       inputSchema: z.object({
         executablePath: z.string().optional().describe("Path to the browser executable (uses CLI --browser-executable if not specified)"),
         args: z.array(z.string()).optional().describe("Additional command-line arguments (merged with CLI --browser-args)"),
         url: z.string().optional().describe("Initial URL to navigate to"),
         port: z.number().optional().describe("Remote debugging port (uses CLI --port if not specified)"),
+        choosePlayer: z.boolean().optional().describe("Show the user a list of their configured Players to pick from"),
       }),
     },
     async (params) => {
-      // Merge CLI config with tool parameters
-      const executablePath = params.executablePath || config.browserExecutable;
+      // An explicit path wins; otherwise the user picks (choosePlayer), the
+      // default is used, or - with no default set - one is offered from the
+      // players list.
+      let executablePath = params.executablePath;
       if (!executablePath) {
-        return {
-          content: [{ 
-            type: "text", 
-            text: JSON.stringify({
-              success: false,
-              message: "No Gameface Player path is configured. Call set_player_path without arguments so the user is asked for it, then call launch_browser again."
-            }, null, 2)
-          }],
-          isError: true,
-        };
+        const choice = params.choosePlayer
+          ? await choosePlayer()
+          : config.browserExecutable
+            ? { status: "chosen" as const, path: config.browserExecutable }
+            : await chooseDefaultFromPlayers();
+        if (choice.status === "error") {
+          return {
+            content: [{ type: "text", text: JSON.stringify({ success: false, message: choice.message }, null, 2) }],
+            isError: true,
+          };
+        }
+        executablePath = choice.path;
       }
 
       const mergedParams = {
@@ -124,6 +131,27 @@ function registerTools() {
     async (params) => {
       log.info(`Setting Player path (${params.search ? "searching" : params.playerPath ? "provided" : "asking the user"})`);
       const result = await setPlayerPath(params);
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        isError: !result.success,
+      };
+    }
+  );
+
+  // Add Players tool
+  mcpServer.registerTool(
+    "add_players",
+    {
+      description:
+        "Adds Players to the user's players list, which launch_browser's choosePlayer offers. Never changes the default Player. With no arguments, prompts the user for paths. Pass paths only if they came from the user. Pass search: true only if the user agreed to an automatic search of their machine.",
+      inputSchema: z.object({
+        paths: z.array(z.string()).optional().describe("Player.exe paths, their folders, or folders of Players (searched inside)"),
+        search: z.boolean().optional().describe("Search the machine for Players (user must agree)"),
+      }),
+    },
+    async (params) => {
+      log.info(`Adding Players (${params.search ? "searching" : params.paths?.length ? "provided" : "asking the user"})`);
+      const result = await addPlayersToList(params);
       return {
         content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
         isError: !result.success,
@@ -903,26 +931,42 @@ async function registerResources() {
 // Register MCP prompts - clients show these as slash commands (Claude Code:
 // /mcp__<server>__<name>). A prompt only puts text into the conversation;
 // the model then does the work with the tools above.
+
+// Prompt arguments always arrive as strings, so yes/no flags are read by hand.
+function isYes(value: string | undefined): boolean {
+  return ["true", "yes", "y", "1"].includes(value?.trim().toLowerCase() ?? "");
+}
+
 function registerPrompts() {
   mcpServer.registerPrompt(
     "launch-player",
     {
-      description: "Launch the Gameface Player, optionally opening a page",
+      description: "Launch the Gameface Player, optionally opening a page or picking which Player",
       argsSchema: {
         url: z.string().optional().describe("Page to open in the Player"),
+        pick: z.string().optional().describe("true to choose from your configured Players"),
       },
     },
-    ({ url }) => ({
-      messages: [
-        {
-          role: "user",
-          content: {
-            type: "text",
-            text: `Call launch_browser${url ? ` with url ${url}` : ""}.`,
+    ({ url, pick }) => {
+      // Arguments are positional, so picking without a page would need an
+      // empty first argument. A URL is never a yes-word, so accept one there.
+      if (isYes(url) && !pick) {
+        pick = url;
+        url = undefined;
+      }
+      const options = [isYes(pick) && "choosePlayer: true", url && `url ${url}`].filter(Boolean);
+      return {
+        messages: [
+          {
+            role: "user",
+            content: {
+              type: "text",
+              text: `Call launch_browser${options.length ? ` with ${options.join(" and ")}` : ""}.`,
+            },
           },
-        },
-      ],
-    })
+        ],
+      };
+    }
   );
 
   mcpServer.registerPrompt(
@@ -933,7 +977,6 @@ function registerPrompts() {
         auto: z.string().optional().describe("true to search the machine for Players instead of entering a path"),
       },
     },
-    // Prompt arguments always arrive as strings, so this is a yes/no by hand.
     ({ auto }) => ({
       messages: [
         {
@@ -943,11 +986,50 @@ function registerPrompts() {
             // Worded as the user's consent: set_player_path's description
             // only allows search: true when the user agreed to it.
             text:
-              ["true", "yes", "y", "1"].includes(auto?.trim().toLowerCase() ?? "")
+              isYes(auto)
                 ?"Change the Gameface Player this MCP server launches. I agree to an automatic search of my machine, " +
                   "so call the set_player_path tool with search: true."
                 : "Change the Gameface Player this MCP server launches: call the set_player_path tool with no arguments " +
                   "so I'm prompted for the new path directly. Don't pass a path yourself.",
+          },
+        },
+      ],
+    })
+  );
+
+  mcpServer.registerPrompt(
+    "scan-players",
+    {
+      description: "Search this machine for Gameface Players and add them to your list (doesn't change the default)",
+    },
+    () => ({
+      messages: [
+        {
+          role: "user",
+          content: {
+            type: "text",
+            // Worded as consent, like change-player-path's auto.
+            text: "I agree to an automatic search of my machine for Gameface Players. Call add_players with search: true.",
+          },
+        },
+      ],
+    })
+  );
+
+  mcpServer.registerPrompt(
+    "add-player",
+    {
+      description: "Add Gameface Players to your list by path or from a folder of Players, without scanning your machine",
+    },
+    // No path argument: prompt arguments are split on spaces, and Windows
+    // paths often have them. The tool asks for the paths instead.
+    () => ({
+      messages: [
+        {
+          role: "user",
+          content: {
+            type: "text",
+            text: "Call add_players with no arguments so I'm prompted for the Player paths. Don't search for them.",
           },
         },
       ],
