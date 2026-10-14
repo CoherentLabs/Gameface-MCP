@@ -115,10 +115,10 @@ function registerTools() {
     "set_player_path",
     {
       description:
-        "Saves the Gameface Player executable path to the user's gameface-mcp config file, so launch_browser finds it in this and every future session. Call it when launch_browser reports that no Player path is configured, or when the user asks to change the Player. Call it without arguments to have the user prompted for the path directly. Only pass playerPath if the user gave it to you, or the user explicitly allowed you to search for the Player and you found it - never guess a path or search for one on your own initiative. Pass search: true to have the server search the machine for Player.exe (up to a minute) - only when the user agreed to that.",
+        "Saves the Gameface Player path to the user's config so launch_browser finds it. With no arguments, prompts the user for it. Pass playerPath only if it came from the user or from a search they allowed - never guess. Pass search: true only if the user agreed to an automatic search of their machine.",
       inputSchema: z.object({
-        playerPath: z.string().optional().describe("Full path to the Player executable, or the folder containing it. Omit to ask the user directly."),
-        search: z.boolean().optional().describe("Search the user's machine for Player.exe automatically. Only set this if the user agreed to an automatic search."),
+        playerPath: z.string().optional().describe("Player.exe or the folder containing it"),
+        search: z.boolean().optional().describe("Search the machine for Player.exe (user must agree)"),
       }),
     },
     async (params) => {
@@ -918,9 +918,7 @@ function registerPrompts() {
           role: "user",
           content: {
             type: "text",
-            text:
-              `Launch the Gameface Player with the launch_browser tool${url ? ` and open ${url}` : ""}. ` +
-              `If it reports that no Player path is configured, call set_player_path with no arguments, then launch again.`,
+            text: `Call launch_browser${url ? ` with url ${url}` : ""}.`,
           },
         },
       ],
