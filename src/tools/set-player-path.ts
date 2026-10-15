@@ -1,7 +1,7 @@
 import { basename } from "node:path";
 import { getConfig, savePlayerPath } from "../config.js";
 import { canElicit, elicitPlayerChoice, elicitPlayerPath, elicitSearchConsent } from "../elicitation.js";
-import { findPlayerFile, searchAndAddPlayers, SEARCH_TIMEOUT_MS } from "../player-paths.js";
+import { findPlayerFile, isFile, resolveDefaultPlayer, searchAndAddPlayers, SEARCH_TIMEOUT_MS } from "../player-paths.js";
 import { SetPlayerPathParams, SetPlayerPathResult } from "../types.js";
 import { createLogger } from "../logger.js";
 
@@ -36,12 +36,20 @@ function save(playerFile: string, enteredPath: string): SetPlayerPathResult {
 
   const foundInFolder = playerFile !== enteredPath ? ` (found inside the folder ${enteredPath})` : "";
 
+  // A working --browser-executable still wins over the saved path. A missing
+  // one needs no warning: resolveDefaultPlayer() falls back to the saved path.
+  const cli = getConfig().cliBrowserExecutable;
+  const effect =
+    cli && isFile(cli)
+      ? `But --browser-executable ${cli} in your MCP client config (e.g. .mcp.json or ~/.claude.json) takes priority over this. Remove it there for the saved path to be used.`
+      : "launch_browser will use it from now on, in this and future sessions.";
+
   try {
     const configFile = savePlayerPath(playerFile);
     log.info(`Saved Player path ${playerFile} to ${configFile}`);
     return {
       success: true,
-      message: `Saved the Player path ${playerFile}${foundInFolder} to ${configFile}. launch_browser will use it from now on, in this and future sessions.`,
+      message: `Saved the Player path ${playerFile}${foundInFolder} to ${configFile}. ${effect}`,
       playerPath: playerFile,
       configFile,
       warning,
@@ -131,7 +139,7 @@ export async function setPlayerPath(params: SetPlayerPathParams): Promise<SetPla
   let problem: string | undefined;
   for (let attempt = 1; attempt <= MAX_PROMPT_ATTEMPTS; attempt++) {
     // The search option only shows up once the first answer has missed.
-    const outcome = await elicitPlayerPath(problem, attempt > 1, getConfig().browserExecutable);
+    const outcome = await elicitPlayerPath(problem, attempt > 1, resolveDefaultPlayer().path);
 
     if (outcome.status === "declined") {
       return {

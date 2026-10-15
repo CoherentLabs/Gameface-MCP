@@ -17,6 +17,8 @@ export interface LaunchBrowserResult {
   message: string;
   cohtmlVersion?: string;
   versionWarning?: string;
+  /** Set while --browser-executable in the MCP client config points nowhere. */
+  notice?: string;
 }
 
 // Connect Browser Tool

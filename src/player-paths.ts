@@ -69,15 +69,36 @@ export async function findPlayersIn(input: string): Promise<{ resolvedPath: stri
 }
 
 /**
+ * The Player a plain launch starts. --browser-executable from the MCP client
+ * config wins when it exists; when it doesn't, the saved Player takes over and
+ * `notice` tells the user to fix the arg - on every launch, for as long as the
+ * bad arg is still there. No `path` means neither is usable.
+ */
+export function resolveDefaultPlayer(): { path?: string; notice?: string } {
+  const { cliBrowserExecutable: cli, browserExecutable: saved } = getConfig();
+  if (!cli) return { path: saved };
+  if (isFile(cli)) return { path: cli };
+
+  const usable = saved && isFile(saved) ? saved : undefined;
+  return {
+    path: usable,
+    notice:
+      `--browser-executable ${cli} from your MCP client config (e.g. .mcp.json or ~/.claude.json) doesn't exist, so ` +
+      (usable ? `the saved Player ${usable} was launched instead.` : "it was ignored.") +
+      " Remove or fix that arg.",
+  };
+}
+
+/**
  * The configured Players that still exist, without duplicates - optionally
  * with the default Player first. Paths that are gone are left out rather than
  * offered and failing at launch.
  */
 export function existingPlayers(includeDefault: boolean): string[] {
-  const { browserExecutable, players } = getConfig();
+  const { players } = getConfig();
   const key = (p: string) => (process.platform === "win32" ? p.toLowerCase() : p);
   const seen = new Set<string>();
-  return [includeDefault ? browserExecutable : undefined, ...players]
+  return [includeDefault ? resolveDefaultPlayer().path : undefined, ...players]
     .filter((p): p is string => !!p && isFile(p))
     .filter((p) => !seen.has(key(p)) && !!seen.add(key(p)));
 }

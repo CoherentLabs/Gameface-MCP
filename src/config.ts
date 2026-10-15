@@ -8,7 +8,14 @@ import { join, dirname } from "node:path";
  */
 
 export interface ServerConfig {
+  /** The saved default Player, from the config file (set_player_path writes it). */
   browserExecutable?: string;
+  /**
+   * --browser-executable from the MCP client config. Kept apart from the saved
+   * path rather than overwriting it, so a stale or mistyped CLI path can fall
+   * back to the saved one - see resolveDefaultPlayer().
+   */
+  cliBrowserExecutable?: string;
   browserArgs: string[];
   port: number;
   cdpHost: string;
@@ -111,7 +118,7 @@ export function parseArgs(args: string[]): ServerConfig {
     switch (arg) {
       case "--browser-executable":
       case "-b":
-        config.browserExecutable = args[++i];
+        config.cliBrowserExecutable = args[++i];
         break;
 
       case "--browser-args":

@@ -1,6 +1,6 @@
-import { getConfig, savePlayerPath } from "../config.js";
+import { savePlayerPath } from "../config.js";
 import { canElicit, elicitPlayerChoice } from "../elicitation.js";
-import { existingPlayers } from "../player-paths.js";
+import { existingPlayers, resolveDefaultPlayer } from "../player-paths.js";
 import { toCandidates } from "../player-search.js";
 import { getBrowserLauncher } from "./launch-browser.js";
 
@@ -37,7 +37,7 @@ export async function choosePlayer(): Promise<ChooseOutcome> {
     };
   }
 
-  const choice = await elicitPlayerChoice(candidates, "Pick the Gameface Player to launch.", getConfig().browserExecutable);
+  const choice = await elicitPlayerChoice(candidates, "Pick the Gameface Player to launch.", resolveDefaultPlayer().path);
   if (choice.status === "accepted") {
     return { status: "chosen", path: choice.path };
   }

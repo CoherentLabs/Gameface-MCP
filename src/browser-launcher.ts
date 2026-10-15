@@ -126,7 +126,17 @@ export class BrowserLauncher extends EventEmitter {
     });
 
     // Give browser time to start
-    const versionInfo = await Promise.race([this.waitForDebuggerReady(port, timeout), spawnErrorPromise]);
+    let versionInfo;
+    try {
+      versionInfo = await Promise.race([this.waitForDebuggerReady(port, timeout), spawnErrorPromise]);
+    } catch (error) {
+      // A spawn failure (ENOENT etc.) never fires "exit", so without this the
+      // handle stays set and isRunning() blocks every later launch. A Player
+      // that started but whose debug port never answered is killed too.
+      if (this.browserProcess?.pid) this.browserProcess.kill();
+      this.browserProcess = null;
+      throw error;
+    }
 
     // Only Gameface Player is allowed here - refuse (and kill) anything else,
     // e.g. a plain Chrome/Chromium binary passed as executablePath. Gameface's

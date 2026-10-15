@@ -18,6 +18,7 @@ import { gamefaceRestart } from "./tools/gameface-restart.js";
 import { setPlayerPath } from "./tools/set-player-path.js";
 import { choosePlayer, chooseDefaultFromPlayers } from "./tools/choose-player.js";
 import { addPlayersToList } from "./tools/add-players.js";
+import { resolveDefaultPlayer } from "./player-paths.js";
 import { assertTextFits, assertNoOverlap, assertWithinParent } from "./tools/assertions.js";
 import { searchGamefaceDocs } from "./tools/search-gameface-docs.js";
 import { perfLint } from "./tools/perf-lint.js";
@@ -84,17 +85,21 @@ function registerTools() {
     async (params) => {
       // An explicit path wins; otherwise the user picks (choosePlayer), the
       // default is used, or - with no default set - one is offered from the
-      // players list.
+      // players list. A bad --browser-executable arg is reported on every
+      // launch through `notice`, whichever way it goes.
       let executablePath = params.executablePath;
+      let notice: string | undefined;
       if (!executablePath) {
+        const resolved = resolveDefaultPlayer();
+        notice = resolved.notice;
         const choice = params.choosePlayer
           ? await choosePlayer()
-          : config.browserExecutable
-            ? { status: "chosen" as const, path: config.browserExecutable }
+          : resolved.path
+            ? { status: "chosen" as const, path: resolved.path }
             : await chooseDefaultFromPlayers();
         if (choice.status === "error") {
           return {
-            content: [{ type: "text", text: JSON.stringify({ success: false, message: choice.message }, null, 2) }],
+            content: [{ type: "text", text: JSON.stringify({ success: false, message: choice.message, notice }, null, 2) }],
             isError: true,
           };
         }
@@ -109,7 +114,7 @@ function registerTools() {
       };
 
       log.info(`Launching browser: ${mergedParams.executablePath}`);
-      const result = await launchBrowser(mergedParams);
+      const result = { ...(await launchBrowser(mergedParams)), notice };
       return {
         content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
         isError: !result.success,
@@ -1049,6 +1054,9 @@ async function main() {
   log.info("Starting Gameface MCP Server");
   if (config.browserExecutable) {
     log.info(`Default browser: ${config.browserExecutable}`);
+  }
+  if (config.cliBrowserExecutable) {
+    log.info(`--browser-executable (takes priority when it exists): ${config.cliBrowserExecutable}`);
   }
   if (config.browserArgs.length > 0) {
     log.info(`Default browser args: ${config.browserArgs.join(", ")}`);
