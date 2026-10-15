@@ -5,6 +5,59 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [1.2.0] - 2026-10-15
+
+Installed from npm instead of a clone, and a guided Player setup: the agent
+asks for the Player path, can search the machine for it, and keeps a list of
+Players to pick from at launch.
+
+### Added
+
+**npm packaging.** The server runs as `npx -y gameface-mcp`, so there's
+nothing to clone or build. The package ships only `build/`, `prompts/` and
+`tools/perf/`, and declares Node 18+.
+
+**Player setup tools.**
+
+- `set_player_path` — saves the default Player to `~/.gameface-mcp/config.json`,
+  creating the file with recommended defaults if needed. With no arguments it
+  asks the user directly through MCP elicitation, re-asks on a wrong path, and
+  offers an automatic search after the first miss. Accepts a `Player.exe`, its
+  folder, or an SDK root.
+- `add_players` — adds Players to a new `players` list without changing the
+  default: from paths, from a folder of Players, from a machine search, or by
+  asking the user.
+- Automatic Player search — runs locally in the server: home folder first, then
+  other drives, skipping system folders, for at most 60 seconds. Only the
+  Player paths it finds reach the model. Every Player found is added to
+  `players`.
+
+**`launch_browser` additions.**
+
+- `choosePlayer: true` — the user picks from the default plus `players`,
+  sorted by version, without changing the default.
+- With no default set but Players in the list, the user picks one, which
+  becomes the default.
+
+**MCP prompts**, shown as slash commands: `launch-player`,
+`change-player-path`, `scan-players`, `add-player`.
+
+### Changed
+
+- `--browser-executable` no longer replaces the saved Player. When the file it
+  points to doesn't exist, the saved Player is launched instead and the result
+  carries a `notice` to fix the flag.
+- The server reports its name as `gameface-mcp` instead of
+  `chrome-cdp-mcp-server`, and its help text describes Gameface Player rather
+  than Chrome.
+
+### Fixed
+
+- A launch that failed to start the Player (a missing path, or a debug port
+  that never answered) no longer blocks every later launch with "Browser is
+  already running".
+
+
 ## [1.1.0] - 2026-09-09
 
 Nine new tools (18 -> 27), focused on two areas:

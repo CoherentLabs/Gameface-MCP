@@ -21,97 +21,85 @@ Version history is in [CHANGELOG.md](CHANGELOG.md).
   directory (note: `Player.exe` usually lives in a `Player` *subfolder*
   under the SDK root, not at the SDK root itself).
 
-## Build
+## Quick start
+
+1. Install the server for every project on your machine:
+   ```bash
+   npx add-mcp "npx -y gameface-mcp@latest" --name gameface -g
+   ```
+2. Optionally, install the [Gameface UI Conductor skill](#gameface-ui-conductor-skill):
+   ```bash
+   npx skills add CoherentLabs/Gameface-MCP --agent claude-code -g
+   ```
+3. Start your agent and ask it to launch the Gameface Player. The first time,
+   the server asks you where your Player is — see [Player setup](#player-setup).
+
+## Installation
+
+**Install it once — globally or per project, never both under the same
+name.** MCP clients identify servers by name, so a project entry called
+`gameface` doesn't add to a global one called `gameface`, it competes with
+it: only one of them runs, and its arguments are never merged with the
+other's.
+
+### With add-mcp (recommended)
+
+[`add-mcp`](https://www.npmjs.com/package/add-mcp) detects which agents you
+use and writes the server into each one's config:
 
 ```bash
-npm install
-npm run build
+# Every project on this machine
+npx add-mcp "npx -y gameface-mcp@latest" --name gameface -g
+
+# This project only - run it from the project folder
+npx add-mcp "npx -y gameface-mcp@latest" --name gameface
 ```
 
-This compiles `src/` to `build/`, producing `build/index.js` — the server's
-stdio entry point. `npm run watch` recompiles on change during development.
-
-## Setting the Player path
-
-There are two ways to tell the server where your Player executable is. A
-CLI flag always overrides the config file.
-
-### Option A — config file (recommended)
-
-Create `~/.gameface-mcp/config.json` (one per developer machine, not per
-project — this server is meant to be reused across multiple game repos, so
-the path lives once on your machine rather than being hardcoded into every
-project's committed MCP config):
-
-```json
-{
-  "browserExecutable": "D:/path/to/your/sdk/Player/Player.exe",
-  "browserArgs": ["--enable-gui=false"],
-  "port": 9444,
-  "cdpHost": "localhost"
-}
-```
-
-Every field is optional. `browserArgs` here are merged in on every
-`launch_browser` call — `--enable-gui=false` is worth setting by default:
-without it, Player's own toolbar/bookmark-bar chrome consumes an
-inconsistent chunk of your requested `--height`, so the actual viewport
-never quite matches what you asked for.
-
-Point at a different file with `-c`/`--config <path>` if you want more than
-one profile (e.g. a different Player build per project).
-
-### Option B — CLI flags
+Server flags go inside the quoted command, after the package name:
 
 ```bash
-node build/index.js --browser-executable "D:/path/to/Player.exe"
+npx add-mcp "npx -y gameface-mcp@latest --port 9445" --name gameface -g
 ```
 
-Full flag list:
+Flags override the config file (see [Command-line flags](#command-line-flags)),
+so only pass `--browser-executable` here if you want this install pinned to
+one Player. Otherwise leave the Player to [Player setup](#player-setup).
 
-| Flag | Short | Meaning | Default |
-|---|---|---|---|
-| `--browser-executable <path>` | `-b` | Path to Player.exe | (required, one way or another) |
-| `--browser-args <args>` | `-a` | Comma-separated extra CLI args passed to Player | none |
-| `--port <port>` | `-p` | CDP remote-debugging port | `9444` |
-| `--cdp-host <host>` | `-h` | Host for the CDP connection | `localhost` |
-| `--config <path>` | `-c` | Path to the JSON config file | `~/.gameface-mcp/config.json` |
-| `--perf-budget <path>` | | Path to this project's performance budget file | `./gameface-perf-budget.json` |
-| `--help` | | Print this list | |
+### Manually, per client
 
-## Connecting from an LLM client
+The command is the same in every client: `npx -y gameface-mcp`. Only the
+config file location and its top-level key (`mcpServers` or `servers`) change.
 
-This is a plain stdio MCP server: any client just needs to run
-`node <path-to-build/index.js>` and speak MCP over stdin/stdout. The exact
-file the client config lives in — and the top-level key it uses
-(`mcpServers` vs `servers`) — differs per client.
+#### Claude Code
 
-### Claude Code
+```bash
+claude mcp add -s user gameface -- npx -y gameface-mcp
+```
 
-`.mcp.json` at your project root:
+`-s user` installs it for every project; `-s project` writes it to the
+project's `.mcp.json` instead. Or write `.mcp.json` at your project root by hand:
 
 ```json
 {
   "mcpServers": {
     "gameface": {
-      "command": "node",
-      "args": ["/absolute/path/to/Gameface-MCP/build/index.js"]
+      "command": "npx",
+      "args": ["-y", "gameface-mcp"]
     }
   }
 }
 ```
 
-### VS Code (GitHub Copilot / MCP extension)
+#### VS Code (GitHub Copilot / MCP extension)
 
-`.vscode/mcp.json` at your project root — this repo already ships one you
-can copy:
+`.vscode/mcp.json` at your project root:
 
 ```json
 {
   "servers": {
-    "gameface_local": {
-      "command": "node",
-      "args": ["build/index.js"]
+    "gameface": {
+      "command": "npx",
+      "args": ["-y", "gameface-mcp"]
     }
   }
 }
@@ -120,7 +108,7 @@ can copy:
 Note the key is `servers`, not `mcpServers` — copying a config from another
 client without changing this key is the most common mistake here.
 
-### Gemini CLI
+#### Gemini CLI
 
 `.gemini/settings.json` (project-level) or `~/.gemini/settings.json`
 (user-level, applies to every project):
@@ -129,16 +117,20 @@ client without changing this key is the most common mistake here.
 {
   "mcpServers": {
     "gameface": {
-      "command": "node",
-      "args": ["/absolute/path/to/Gameface-MCP/build/index.js"],
-      "timeout": 30000,
+      "command": "npx",
+      "args": ["-y", "gameface-mcp"],
+      "timeout": 90000,
       "trust": false
     }
   }
 }
 ```
 
-### Claude Desktop
+Keep the timeout generous: the automatic Player search can take up to a
+minute, plus however long you take to answer its prompts, all inside one
+tool call.
+
+#### Claude Desktop
 
 `claude_desktop_config.json` (macOS:
 `~/Library/Application Support/Claude/claude_desktop_config.json`, Windows:
@@ -148,26 +140,134 @@ client without changing this key is the most common mistake here.
 {
   "mcpServers": {
     "gameface": {
-      "command": "node",
-      "args": ["/absolute/path/to/Gameface-MCP/build/index.js"]
+      "command": "npx",
+      "args": ["-y", "gameface-mcp"]
     }
   }
 }
 ```
 
-In every case above, if you've set up `~/.gameface-mcp/config.json` (Option
-A above) the `args` array needs nothing beyond the path to `build/index.js`
-— the Player path, port, etc. are picked up automatically. Add
-`--browser-executable`/other flags to `args` only if you want to override
-the config file for a specific client or project.
+### Command-line flags
+
+Optional flags that override the [config file](#player-setup) for a single
+install. Add them to the `args` in your client's MCP config, after
+`gameface-mcp`:
+
+```json
+"args": ["-y", "gameface-mcp", "--port", "9445"]
+```
+
+Precedence, lowest to highest: built-in defaults → config file → flags.
+
+| Flag | Short | Meaning | Default |
+|---|---|---|---|
+| `--browser-executable <path>` | `-b` | Path to Player.exe | the config file's `browserExecutable` |
+| `--browser-args <args>` | `-a` | Comma-separated extra CLI args passed to Player | none |
+| `--port <port>` | `-p` | CDP remote-debugging port | `9444` |
+| `--cdp-host <host>` | `-h` | Host for the CDP connection | `localhost` |
+| `--config <path>` | `-c` | Path to the JSON config file | `~/.gameface-mcp/config.json` |
+| `--perf-budget <path>` | | Path to this project's performance budget file | `./gameface-perf-budget.json` |
+| `--help` | | Print this list | |
+
+### The Conductor skill (optional)
+
+The [Gameface UI Conductor skill](#gameface-ui-conductor-skill) is **not**
+part of the npm package; install it separately:
+
+```bash
+npx skills add CoherentLabs/Gameface-MCP --agent claude-code
+```
+
+This copies it into the project's `.claude/skills/`; add `-g` to install it
+into `~/.claude/skills/` instead, for every project. Pass `--agent`
+explicitly: without it, the interactive picker installs into the shared
+`.agents/skills/` folder, which Claude Code doesn't read. Start a new session
+afterwards.
+
+## Player setup
+
+The Player location is per machine, so it's stored in one file in your home
+folder rather than in each project's MCP config. Set it up yourself, or let the
+agent do it.
+
+### Where it's stored
+
+`~/.gameface-mcp/config.json` (`%USERPROFILE%\.gameface-mcp\config.json` on
+Windows). Only this location is read by default.
+
+| Field | Meaning | Default |
+|---|---|---|
+| `browserExecutable` | The default Player — the one every plain launch starts. | none |
+| `players` | Other Players, offered when you pick one at launch. | `[]` |
+| `browserArgs` | Extra args passed to Player on every launch. | `[]` |
+| `port` | CDP remote-debugging port. | `9444` |
+| `cdpHost` | Host for the CDP connection. | `localhost` |
+| `perfBudgetFile` | Path to the performance budget file. | `./gameface-perf-budget.json` |
+
+### Letting the agent set it up
+
+Ask the agent to launch the Player. If none is configured yet, it asks for the
+path (a `Player.exe`, its folder, or your SDK folder all work) or can search
+your machine for you. The search runs as a script inside the server, so the AI
+only sees the list of Players found, not your files. 
+
+If the config file doesn't exist yet, the agent creates it with the defaults from the
+[example below](#setting-it-up-yourself).
+
+To add Players or change the default later, use the [commands](#commands)
+`change-player-path`, `scan-players` and `add-player`. `add-player` also
+accepts a folder and adds every Player in it.
+
+### Setting it up yourself
+
+Create `~/.gameface-mcp/config.json`:
+
+```json
+{
+  "browserExecutable": "D:/path/to/your/sdk/Player/Player.exe",
+  "players": [
+    "D:/Players/Cohtml-3.2.0.52-Public-Player/Player.exe",
+    "D:/Players/Cohtml-3.1.2.1-Public-Player/Player.exe"
+  ],
+  "browserArgs": ["--enable-gui=false"],
+  "port": 9444,
+  "cdpHost": "localhost"
+}
+```
+
+Every field is optional. Point at a different file with `-c`/`--config <path>`
+if you want more than one profile.
+
+## Commands
+
+Shortcuts for common tasks, so you can launch and manage Players without
+spelling out the request to the agent each time. For example,
+`launch-player true` lets you pick any of your Players, sorted by version, to
+launch.
+
+| Command | Arguments | Example values | What it does |
+|---|---|---|---|
+| `launch-player` | `[url] [pick]` | `url`: `http://localhost:3000`<br>`pick`: `true` | Launches your default Player, optionally opening `url`. With `pick` set to `true`, you choose from all your Players first. |
+| `change-player-path` | `[auto]` | `auto`: `true` | Changes your default Player. Asks for the path, or with `true`, searches the machine. |
+| `scan-players` | | | Searches the machine and adds every Player found. Doesn't change the default. |
+| `add-player` | | | Adds Players by path, or every Player in a folder. No scan. |
+
+Commands are MCP prompts, which your client shows as slash commands. In Claude
+Code that's `/mcp__<server name>__<command>`, e.g.
+`/mcp__gameface__launch-player`. Arguments are positional, and `true`, `yes`,
+`y` and `1` all count as yes.
+
+Under the hood, a command sends a fixed request to the agent, which calls the
+[tools](#available-tools), so it still uses tokens like any other request.
 
 ## Available tools
 
 | Tool | What it does |
 |---|---|
-| `launch_browser` | Launches Player with remote debugging enabled. Refuses and kills anything that isn't Gameface Player. |
+| `launch_browser` | Launches Player with remote debugging enabled. Refuses and kills anything that isn't Gameface Player. Starts the default Player unless given `executablePath`; with `choosePlayer: true`, you pick from your Players first. With no default set, offers your Players list, or points to `set_player_path` when it's empty. |
+| `set_player_path` | Saves the default Player to the config file, creating it if needed. With no arguments, asks you for the path (see [Player setup](#letting-the-agent-set-it-up)); `search: true` searches the machine for it. |
+| `add_players` | Adds Players to the `players` list without changing the default: from `paths`, from a machine search (`search: true`), or by asking you. |
 | `connect_browser` | Connects to an already-running, debuggable Player instance. Same Gameface-only guard. |
-| `set_player_path` | Saves the Player path to the config file (creating it if needed). Called when `launch_browser` finds no path configured; asks the user directly where the client supports elicitation, otherwise the model asks in chat. |
 | `gameface_get_status` | Reports current connection status. |
 | `gameface_restart` | Disconnects, closes, relaunches, and reconnects using the last-used launch/connect parameters. |
 | `navigate` | Navigates the connected view to a different URL. |
@@ -347,6 +447,10 @@ up to three question rounds, gets explicit sign-off on a written spec, then
 implements and — if a Gameface MCP connection is available — validates the
 result with the assertion/lint/perf tools above before calling it done.
 
+It's only available where it's installed — see
+[The Conductor skill](#the-conductor-skill-optional) for installing it into
+your own projects; inside a clone of this repo it's picked up as-is.
+
 This one set of files is shared across clients, not duplicated per client,
 but *how* it gets invoked differs:
 
@@ -354,7 +458,7 @@ but *how* it gets invoked differs:
 |---|---|
 | Claude Code | Automatic — matches the skill's `description` against your request, or invoke explicitly with `/gameface-conductor`. |
 | GitHub Copilot (VS Code) | Automatic — Copilot's "Agent Skills" scans `.claude/skills/` by default (in addition to `.github/skills/`), so this file is picked up as-is, no extra setup. |
-| Gemini CLI | **Explicit only** — Gemini CLI has no auto-triggered skill concept, only user-invoked custom commands. Run `/gameface-conductor <your request>`; `.gemini/commands/gameface-conductor.toml` embeds the same `SKILL.md` and `dimensions.md` content via `@{...}` file injection rather than duplicating it. |
+| Gemini CLI | **Explicit only** — Gemini CLI has no auto-triggered skill concept, only user-invoked custom commands. Run `/gameface-conductor <your request>`; `.gemini/commands/gameface-conductor.toml` embeds the same `SKILL.md` and `dimensions.md` content via `@{...}` file injection rather than duplicating it. Those paths are relative to this repo, so this only works inside a clone of it. |
 
 Because the same file is read by more than one host, its wording avoids
 naming host-specific tools (no literal `TodoWrite`/`AskUserQuestion`
@@ -411,10 +515,67 @@ comments in `src/tools/assertions.ts`) — `search_dom` doesn't have an
 equivalent fix yet. None of this is likely to be an exhaustive list; treat it
 as what's been verified so far, not a guarantee of what hasn't been hit.
 
+## Troubleshooting
+
+- **"Conflicting scopes" warning in Claude Code** — `gameface` is installed
+  both globally and in the project, and only one runs. Remove one with
+  `claude mcp remove gameface -s user` or `-s project`.
+- **The server doesn't start on Windows** — some clients can't run `npx`
+  directly. Wrap it: `"command": "cmd", "args": ["/c", "npx", "-y", "gameface-mcp"]`.
+- **An update doesn't show up** — `npx` caches installs. Use
+  `gameface-mcp@latest`, or delete `%LocalAppData%\npm-cache\_npx` and
+  restart the client.
+- **A launch result has a `notice` about `--browser-executable`** — the flag in
+  your MCP client config points to a missing file and is being ignored. Fix or
+  remove it.
+- **The Player search gets cut off** — your client's tool timeout is shorter
+  than the search (up to 60 seconds, plus your answers). Raise it, as in the
+  [Gemini CLI](#gemini-cli) example.
+
+## Development
+
+```bash
+git clone https://github.com/CoherentLabs/Gameface-MCP.git
+cd Gameface-MCP
+npm install
+npm run build
+```
+
+`npm run build` compiles `src/` to `build/index.js`, the server's entry point.
+`npm run watch` recompiles on change. The repo's `.vscode/mcp.json` runs
+`node build/index.js`, so opening the repo in VS Code uses your local build.
+
+### Testing in another project
+
+Two ways to run your local build from a different project:
+
+**Global link** — fast iteration, no repacking:
+
+```bash
+npm link
+npx add-mcp "gameface-mcp" --name gameface -g
+```
+
+`npm link` makes `gameface-mcp` a global command pointing at your clone, so
+`npm run build` is all it takes to pick up changes (restart the client).
+Undo it with `npm unlink -g gameface-mcp`.
+
+**Pack** — tests the package exactly as npm would publish it:
+
+```bash
+npm pack
+npx add-mcp "npx -y C:/absolute/path/to/Gameface-MCP/gameface-mcp-<version>.tgz" --name gameface -g
+```
+
+Use an absolute path, since the client starts the server from its own working
+folder. After repacking with the same version, delete
+`%LocalAppData%\npm-cache\_npx`, or `npx` keeps running the old copy.
+
 ## Notes
 
 - stdout is reserved for MCP protocol traffic — all logging goes to stderr.
-- The server maintains a single browser/connection at a time; `launch_browser`
+- The server maintains a single browser/connection at a time — picking a
+  Player at launch chooses *which* one runs, not how many. `launch_browser`
   and `connect_browser` actively verify a tracked process/connection is
   still alive before refusing to start a new one, so a manually-closed
   Player won't leave the server stuck thinking it's still connected.
