@@ -46,84 +46,80 @@ interface ElementHandle {
 }
 
 /**
- * How long to wait before retrying a mismatched resolution. Gameface runs layout
- * on a separate thread and settles geometry roughly one frame behind a mutation
- * (documented elsewhere in this engine, and confirmed for DOM.getBoxModel
- * specifically: reading it immediately after a resize can still report the
- * pre-mutation size for a frame). 50ms comfortably covers a few frames at 60Hz.
+ * Finds the element-only child-index path from the document node to nodeId,
+ * e.g. [0, 1, 3] = documentElement.children[1].children[3]. Returns null if the
+ * node isn't in the tree, or isn't an element.
  */
-const STALE_RETRY_DELAY_MS = 50;
+function findElementPath(node: any, nodeId: number): { path: number[]; nodeName: string } | null {
+  const elementChildren = (node.children || []).filter((c: any) => c.nodeType === 1);
+  for (let i = 0; i < elementChildren.length; i++) {
+    const child = elementChildren[i];
+    if (child.nodeId === nodeId) {
+      return { path: [i], nodeName: child.nodeName };
+    }
+    const found = findElementPath(child, nodeId);
+    if (found) {
+      return { path: [i, ...found.path], nodeName: found.nodeName };
+    }
+  }
+  return null;
+}
 
 /**
  * Resolves a CDP nodeId to a live JS object handle plus its rendered rect.
  *
- * DOM.resolveNode returns an empty `{}` (no error, just nothing usable) against
- * this Gameface build - verified, not a timing issue: DOM-domain WRITE commands
- * (DOM.setAttributeValue) silently no-op here too, while plain JS mutations via
- * Runtime.evaluate sync correctly and immediately in both directions. So there is
- * no reliable nodeId -> JS-object bridge through the DOM domain at all here.
+ * DOM.resolveNode (and DOM.requestNode in the other direction) return an empty
+ * `{}` against Gameface - no error, just nothing usable - so there is no direct
+ * nodeId -> JS-object bridge through the DOM domain.
  *
- * The fix: DOM.getBoxModel({nodeId}) DOES work (confirmed), so get the element's
- * rendered box that way, then pick it up on the JS side via
- * document.elementFromPoint at its center - the one confirmed-working bridge.
- * elementFromPoint returns whichever element is topmost at that point, which
- * could be a different, overlapping element (e.g. a child covering the target's
- * center) rather than the node getBoxModel described - so the resolved element's
- * own rect is verified against the expected one before it's trusted. A mismatch
- * is retried once after a short delay before being treated as a real "wrong
- * element" case, because DOM.getBoxModel itself can report stale (pre-mutation)
- * geometry for a frame or two right after a change - the same mismatch a genuine
- * overlapping element would produce, but one that resolves on its own shortly.
+ * The bridge used instead: read the CDP tree with DOM.getDocument (nodeIds are
+ * stable across repeated calls here, so the caller's nodeId stays valid), record
+ * the element's position as a path of element-child indices, and walk the same
+ * path in JS via `.children`. CDP drops whitespace-only text nodes that JS
+ * `childNodes` keeps, but element children line up one-to-one, so the walk lands
+ * on exactly the node the caller named - unlike hit-testing (elementFromPoint),
+ * which can't reach containers whose center is covered by a child, or anything
+ * under an overlay. The tag name is checked at the end to catch a DOM that
+ * changed between the two reads.
  */
-async function resolveElementHandle(client: Client, nodeId: number, isRetry = false): Promise<ElementHandle> {
-  const boxModel = await client.DOM.getBoxModel({ nodeId });
-  if (!boxModel || !boxModel.model) {
-    throw new Error(`Failed to get box model for node ${nodeId}. Element may not exist or may not be rendered.`);
+async function resolveElementHandle(client: Client, root: any, nodeId: number): Promise<ElementHandle> {
+  const found = findElementPath(root, nodeId);
+  if (!found) {
+    throw new Error(
+      `Node ${nodeId} is not an element in the current document. It may have been removed, or it is a text/comment node - re-run get_dom_tree for fresh IDs.`
+    );
   }
 
-  const quad = boxModel.model.border;
-  const xs = [quad[0], quad[2], quad[4], quad[6]];
-  const ys = [quad[1], quad[3], quad[5], quad[7]];
-  const left = Math.min(...xs);
-  const right = Math.max(...xs);
-  const top = Math.min(...ys);
-  const bottom = Math.max(...ys);
-  const cx = (left + right) / 2;
-  const cy = (top + bottom) / 2;
-
+  // path[0] is the document's element child, i.e. documentElement.
+  const [, ...rest] = found.path;
+  const walk = rest.map((i) => `.children[${i}]`).join("");
   const evalResult = await client.Runtime.evaluate({
-    expression: `document.elementFromPoint(${cx}, ${cy})`,
+    expression: `(() => { const el = document.documentElement${walk}; return el && el.tagName === ${JSON.stringify(found.nodeName)} ? el : null; })()`,
     returnByValue: false,
   });
 
   if (evalResult.exceptionDetails) {
     const text = evalResult.exceptionDetails.exception?.description || evalResult.exceptionDetails.text || "Unknown exception";
-    throw new Error(`Failed to resolve node ${nodeId} via elementFromPoint: ${text}`);
+    throw new Error(`Failed to resolve node ${nodeId} to a live element: ${text}`);
   }
 
   const objectId = evalResult.result.objectId;
   if (!objectId) {
     throw new Error(
-      `document.elementFromPoint found nothing at node ${nodeId}'s center (${cx.toFixed(1)}, ${cy.toFixed(1)}). It may be zero-size, hidden, or offscreen.`
+      `Node ${nodeId} (${found.nodeName}) could not be found in the live DOM at its tree position - the DOM likely changed mid-call. Retry, or re-run get_dom_tree.`
     );
   }
 
   const rect = await getBoundingRect(client, objectId);
-  const widthDiff = Math.abs(rect.width - (right - left));
-  const heightDiff = Math.abs(rect.height - (bottom - top));
-  if (widthDiff > GEOMETRY_TOLERANCE || heightDiff > GEOMETRY_TOLERANCE) {
-    if (!isRetry) {
-      await new Promise((resolve) => setTimeout(resolve, STALE_RETRY_DELAY_MS));
-      return resolveElementHandle(client, nodeId, true);
-    }
-    throw new Error(
-      `Node ${nodeId}'s center point (${cx.toFixed(1)}, ${cy.toFixed(1)}) resolved to a differently-sized element ` +
-        `(expected ${(right - left).toFixed(1)}x${(bottom - top).toFixed(1)}, got ${rect.width.toFixed(1)}x${rect.height.toFixed(1)}), ` +
-        `even after a retry - likely a child or overlapping element sits at that exact point instead of node ${nodeId} itself.`
-    );
-  }
-
   return { objectId, rect };
+}
+
+async function readDocumentRoot(client: Client): Promise<any> {
+  const doc = await client.DOM.getDocument({ depth: -1 });
+  if (!doc?.root) {
+    throw new Error("Failed to read the document - DOM.getDocument returned no root node.");
+  }
+  return doc.root;
 }
 
 async function getBoundingRect(client: Client, objectId: string): Promise<Rect> {
@@ -199,7 +195,8 @@ export async function assertTextFits(params: AssertTextFitsParams): Promise<Asse
 
   log.info(`Checking text fit for node ${nodeId}`);
 
-  const { objectId } = await resolveElementHandle(client, nodeId);
+  const root = await readDocumentRoot(client);
+  const { objectId } = await resolveElementHandle(client, root, nodeId);
 
   const result = await (client as any).Runtime.callFunctionOn({
     objectId,
@@ -247,9 +244,10 @@ export async function assertNoOverlap(params: AssertNoOverlapParams): Promise<As
 
   log.info(`Checking overlap between node ${nodeIdA} and node ${nodeIdB}`);
 
+  const root = await readDocumentRoot(client);
   const [handleA, handleB] = await Promise.all([
-    resolveElementHandle(client, nodeIdA),
-    resolveElementHandle(client, nodeIdB),
+    resolveElementHandle(client, root, nodeIdA),
+    resolveElementHandle(client, root, nodeIdB),
   ]);
   const rectA = handleA.rect;
   const rectB = handleB.rect;
@@ -283,13 +281,14 @@ export async function assertWithinParent(params: AssertWithinParentParams): Prom
     `Checking bounds for node ${nodeId} against ${useViewport ? "viewport" : containerNodeId !== undefined ? `node ${containerNodeId}` : "immediate parent"}`
   );
 
-  const { objectId, rect: elementRect } = await resolveElementHandle(client, nodeId);
+  const root = await readDocumentRoot(client);
+  const { objectId, rect: elementRect } = await resolveElementHandle(client, root, nodeId);
 
   let containerRect: Rect;
   if (useViewport) {
     containerRect = await getViewportRect(client);
   } else if (containerNodeId !== undefined) {
-    const containerHandle = await resolveElementHandle(client, containerNodeId);
+    const containerHandle = await resolveElementHandle(client, root, containerNodeId);
     containerRect = containerHandle.rect;
   } else {
     const parentObjectId = await getParentObjectId(client, objectId);

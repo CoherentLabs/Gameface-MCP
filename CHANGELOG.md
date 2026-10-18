@@ -5,6 +5,19 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [Unreleased]
+
+### Fixed
+
+- `assert_text_fits`, `assert_no_overlap` and `assert_within_parent` no longer
+  refuse elements whose center is covered by something else. They used to find
+  the element with `elementFromPoint` at its center, which hit a child for most
+  containers, hit the overlay for anything under one, and hit a slightly
+  different box for transformed elements. They now look up the node's position
+  in the `DOM.getDocument` tree and walk the same path in JS, so any element in
+  the tree can be checked. Passing a text node or a stale ID now gives a clear
+  error.
+
 ## [1.2.0] - 2026-10-15
 
 Installed from npm instead of a clone, and a guided Player setup: the agent

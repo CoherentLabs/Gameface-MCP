@@ -509,10 +509,11 @@ the floor) still has real ones, found and worked around:
 - `DOM.performSearch` (what `search_dom` uses) never returns a `searchId`.
 
 `assert_text_fits`/`assert_no_overlap`/`assert_within_parent` work around the
-first two by resolving a `nodeId` to a live element via `DOM.getBoxModel`
-(confirmed working) plus `document.elementFromPoint` at its center (see the
-comments in `src/tools/assertions.ts`) — `search_dom` doesn't have an
-equivalent fix yet. None of this is likely to be an exhaustive list; treat it
+first two by locating the `nodeId` in the `DOM.getDocument` tree and walking
+the same element-child path in JS (see the comments in
+`src/tools/assertions.ts`), so they work on any element in the tree —
+containers, covered elements, and transformed elements included —
+`search_dom` doesn't have an equivalent fix yet. None of this is likely to be an exhaustive list; treat it
 as what's been verified so far, not a guarantee of what hasn't been hit.
 
 ## Troubleshooting
