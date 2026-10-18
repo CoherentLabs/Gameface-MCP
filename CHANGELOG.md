@@ -17,6 +17,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   in the `DOM.getDocument` tree and walk the same path in JS, so any element in
   the tree can be checked. Passing a text node or a stale ID now gives a clear
   error.
+- Tool descriptions no longer describe a generic browser. `connect_browser`
+  said "Connects to a running browser via Chrome DevTools Protocol", which
+  read as an invitation to point it at Chrome. It and the other
+  connection-related tools now name Gameface Player.
 
 ## [1.2.0] - 2026-10-15
 

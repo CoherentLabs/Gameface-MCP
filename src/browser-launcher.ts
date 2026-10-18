@@ -41,7 +41,7 @@ export class BrowserLauncher extends EventEmitter {
   }
 
   /**
-   * Launches a Chromium-based browser with remote debugging enabled
+   * Launches Gameface Player with remote debugging enabled
    * @param options - Launch configuration
    * @returns Browser instance information
    */

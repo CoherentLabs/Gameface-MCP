@@ -75,7 +75,7 @@ function registerTools() {
     {
       description: "Launches the Gameface Player with remote debugging enabled - the configured default unless told otherwise. Pass choosePlayer: true to let the user pick from their configured Players.",
       inputSchema: z.object({
-        executablePath: z.string().optional().describe("Path to the browser executable (uses CLI --browser-executable if not specified)"),
+        executablePath: z.string().optional().describe("Path to the Gameface Player executable (uses CLI --browser-executable if not specified)"),
         args: z.array(z.string()).optional().describe("Additional command-line arguments (merged with CLI --browser-args)"),
         url: z.string().optional().describe("Initial URL to navigate to"),
         port: z.number().optional().describe("Remote debugging port (uses CLI --port if not specified)"),
@@ -168,7 +168,7 @@ function registerTools() {
   mcpServer.registerTool(
     "connect_browser",
     {
-      description: "Connects to a running browser via Chrome DevTools Protocol",
+      description: "Connects to a running Gameface Player over its remote debugging (CDP) port. Only Gameface Player targets are accepted.",
       inputSchema: z.object({
         port: z.number().optional().describe("Remote debugging port (uses CLI --port if not specified)"),
         host: z.string().optional().describe("Host address (uses CLI --cdp-host if not specified)"),
@@ -196,7 +196,7 @@ function registerTools() {
   mcpServer.registerTool(
     "get_console_logs",
     {
-      description: "Retrieves buffered console messages and Log domain entries from the connected browser. Includes Runtime console API calls (console.log, console.error, etc.) and browser Log entries (network errors, security warnings, deprecations, etc.)",
+      description: "Retrieves buffered console messages and Log domain entries from the connected Gameface Player. Includes Runtime console API calls (console.log, console.error, etc.) and Player Log entries (network errors, security warnings, deprecations, etc.)",
       inputSchema: z.object({
         clear: z.boolean().optional().describe("Whether to clear the buffer after retrieving (default: false)"),
         filterLevel: z.string().optional().describe("Optional filter by message type/level. For Runtime console messages: log, error, warning, info, debug, exception. For Log domain entries: verbose, info, warning, error"),
@@ -363,7 +363,7 @@ function registerTools() {
   mcpServer.registerTool(
     "navigate",
     {
-      description: "Navigates to a different URL in the browser using Page.navigate",
+      description: "Navigates to a different URL in the connected Gameface Player using Page.navigate",
       inputSchema: z.object({
         url: z.string().describe("The URL to navigate to"),
         waitUntil: z.enum(["documentUpdated"]).optional().describe("Optional wait condition: documentUpdated (wait for document update)"),
@@ -390,7 +390,7 @@ function registerTools() {
   mcpServer.registerTool(
     "eval_js",
     {
-      description: "Executes arbitrary JavaScript code in the browser context using Runtime.evaluate. Returns the result value, type, and handles exceptions.",
+      description: "Executes arbitrary JavaScript code in the connected Gameface Player's page context using Runtime.evaluate. Returns the result value, type, and handles exceptions.",
       inputSchema: z.object({
         expression: z.string().describe("JavaScript expression or code to evaluate"),
         awaitPromise: z.boolean().optional().describe("Whether to await promises (default: false)"),
@@ -419,7 +419,7 @@ function registerTools() {
   mcpServer.registerTool(
     "gameface_get_status",
     {
-      description: "Returns the current browser connection status. Checks if there is an active connection to a browser.",
+      description: "Returns the current connection status: whether this server is connected to a Gameface Player.",
       inputSchema: z.object({}),
     },
     async (params) => {
@@ -442,7 +442,7 @@ function registerTools() {
   mcpServer.registerTool(
     "gameface_restart",
     {
-      description: "Restarts the launched browser by closing it, disconnecting, relaunching with the same parameters, and reconnecting. Requires a browser to have been previously launched and connected.",
+      description: "Restarts the launched Gameface Player by closing it, disconnecting, relaunching with the same parameters, and reconnecting. Requires a Player to have been previously launched and connected.",
       inputSchema: z.object({}),
     },
     async (params) => {
