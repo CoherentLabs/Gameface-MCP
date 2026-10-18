@@ -283,7 +283,8 @@ Under the hood, a command sends a fixed request to the agent, which calls the
 | `assert_within_parent` | Checks whether an element stays within its parent/an ancestor/the viewport. |
 | `search_gameface_docs` | Searches the Gameface RAG documentation corpus (`prompts/rag/`) for guidance relevant to a query. |
 | `perf_lint` | Static, deterministic structural check for layout patterns the Gameface docs name as expensive (e.g. `align-items: stretch`, unsized flex items, `display: simple` misuse). No timing involved. |
-| `perf_measure` | Injects the fixed frame-timing scenario from `tools/perf/calibrate.js` into the live connection and reports p50/p95/p99 against the recorded baseline in `tools/perf/noise-floor.md`. |
+| `perf_measure` | Injects the fixed frame-timing scenario from `tools/perf/calibrate.js` into the live connection and reports p50/p95/p99 against this machine's noise floor. Asks for `perf_calibrate` first when none is saved. |
+| `perf_calibrate` | Records this machine's noise floor (separate Player, several runs) and saves it to `~/.gameface-mcp/noise-floor.json`. |
 | `perf_profile` | Measures what the UI costs the engine per frame, and stops. No breakdown, no verdict - whether that cost is acceptable is the user's call. |
 | `perf_trace` | Per-phase breakdown for an over-budget UI. Requires a budget the user set; returns nothing to act on without one, or when already within budget. |
 | `check_memory` | Reads JS heap and GPU texture memory; with a trigger expression, runs a before/after leak test around a forced garbage collection. |
@@ -472,19 +473,38 @@ unverified until someone runs `/gameface-conductor` for real.
 
 ## Performance tooling
 
-- `tools/perf/calibrate.js` — the fixed, page-agnostic frame-timing scenario
-  used both by `perf_measure` (against a live connection) and by the
-  standalone calibration script below (against a freshly booted Player).
-- `tools/perf/noise-floor.md` — the recorded baseline: p50/p95/p99 across 5
-  runs of 600 frames (120 discarded as warmup) at 1920x1080, Player
-  restarted between runs. `perf_measure` compares new readings against this.
-- `scripts/measure-frame-noise-floor.mjs` — regenerates the above. Boots
-  Player fresh per run (not via the MCP connection, so it needs its own path
-  to Player.exe — reads `~/.gameface-mcp/config.json` the same way the
-  server does, or pass `--browser-executable <path>` to override):
+`perf_measure` compares frame times against a **noise floor recorded on your
+machine**. Idle frame times follow the display's refresh rate, so a floor from
+another machine says nothing: on a 120 Hz display every reading sits far below
+one recorded at 30 Hz, however slow the UI is.
+
+- **First use.** With no floor saved, `perf_measure` measures nothing and
+  returns `needsCalibration: true`. The agent then tells you, runs
+  `perf_calibrate`, and measures again. Calibration starts a separate Player
+  window several times (5 runs of 600 frames, about a minute or two) using the
+  Player you launched, at the live viewport size. Your own Player and
+  connection are left alone.
+- **Where it's kept.** `~/.gameface-mcp/noise-floor.json`, next to
+  `config.json` (or next to the file passed with `--config`). It holds p50,
+  p95 and p99 across the runs plus the display's frame period, resolution and
+  Cohtml version. Delete it to start over.
+- **When it stops matching.** `perf_measure` reports
+  `framePeriodMatchesBaseline`, `resolutionMatchesBaseline` and
+  `cohtmlVersionMatchesBaseline`, and adds a `warning` suggesting
+  `perf_calibrate` when one is off. On a faster display than the floor's, it
+  also omits `withinNoiseFloor`, since readings aren't comparable.
+- `tools/perf/calibrate.js` is the fixed, page-agnostic scenario both tools
+  inject, so the two are measured the same way.
+- From a clone, `scripts/measure-frame-noise-floor.mjs` does the same as
+  `perf_calibrate` from the command line (needs `npm run build`; the Player
+  comes from `--browser-executable` or `~/.gameface-mcp/config.json`):
   ```bash
   node scripts/measure-frame-noise-floor.mjs --runs 5 --frames 600 --warmup 120
   ```
+
+Some clients cut off tool calls after a fixed time. `perf_calibrate` sends a
+progress notification after each run, which keeps clients that support them
+waiting. If yours doesn't, raise its tool timeout or pass fewer `runs`.
 
 ## Version awareness
 
@@ -496,8 +516,8 @@ differently, or aren't available, on older builds. `launch_browser`,
 when it's below `MIN_RECOMMENDED_COHTML_VERSION` (currently `3.1.2`, per a
 user report that this version introduced additional CDP protocol support and
 fixes). `perf_measure` similarly reports `cohtmlVersionMatchesBaseline`
-against whatever version `tools/perf/noise-floor.md` was last calibrated
-against, the same way it flags a resolution mismatch.
+against the version this machine's noise floor was recorded with, the same
+way it flags a resolution mismatch.
 
 **This is a floor, not a guarantee.** Meeting it doesn't mean every tool is
 unaffected by every CDP quirk — our own dev SDK (3.2.0.2, comfortably above

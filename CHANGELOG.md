@@ -5,7 +5,14 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
-## [Unreleased]
+## [1.3.0] - 2026-10-20
+
+### Added
+
+- `perf_calibrate` records this machine's frame-timing noise floor and saves
+  it to `~/.gameface-mcp/noise-floor.json`. It starts a separate Player for
+  each run (5 by default) using the Player last launched, at the live viewport
+  size, and sends a progress notification after each run.
 
 ### Fixed
 
@@ -36,6 +43,21 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   off-screen. `clipArea` no longer needs `fullPage: false` to take effect.
 - `take_screenshot` returns an MCP image the agent can see, not the base64 PNG
   inside a JSON text block.
+- `perf_measure` compares against a noise floor recorded on this machine
+  instead of the one shipped in the package. Idle frame times follow the
+  display's refresh rate, and the shipped floor was recorded over Remote
+  Desktop at 32 Hz, so on a 120 Hz display every reading passed, even for a UI
+  three times slower. With no floor saved, `perf_measure` now returns
+  `needsCalibration: true` and tells the agent to run `perf_calibrate` first.
+- `perf_measure` checks the display's frame period against the floor's. It
+  reports `framePeriodMs`, `baselineFramePeriodMs` and
+  `framePeriodMatchesBaseline`. On a faster display it omits
+  `withinNoiseFloor` and explains why in `warning`; on a slower one it keeps
+  the verdict and warns. Resolution and Cohtml version mismatches now add a
+  warning suggesting `perf_calibrate` too.
+- `perf_measure` no longer times out on slow displays. The fixed 15 s limit was
+  shorter than 600 frames take at 30 Hz; the limit now scales with the frame
+  count.
 
 ### Security
 
@@ -47,6 +69,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- The noise floor is per machine, in `~/.gameface-mcp/noise-floor.json`.
+  `tools/perf/noise-floor.md` is no longer shipped, and
+  `scripts/measure-frame-noise-floor.mjs` now writes to the per-machine file
+  and shares its implementation with `perf_calibrate`.
 - Requires Node 20 or later (was 18). Node 18 is end-of-life, and the patched
   `@hono/node-server` 2.x that the SDK now resolves to declares Node 20+.
 

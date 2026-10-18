@@ -23,6 +23,7 @@ import { assertTextFits, assertNoOverlap, assertWithinParent } from "./tools/ass
 import { searchGamefaceDocs } from "./tools/search-gameface-docs.js";
 import { perfLint } from "./tools/perf-lint.js";
 import { perfMeasure } from "./tools/perf-measure.js";
+import { perfCalibrate } from "./tools/perf-calibrate.js";
 import { perfTrace } from "./tools/perf-trace.js";
 import { perfProfile } from "./tools/perf-profile.js";
 import { checkMemory, getImageCacheStats } from "./tools/memory.js";
@@ -607,14 +608,13 @@ function registerTools() {
   mcpServer.registerTool(
     "perf_measure",
     {
-      description: "Injects the fixed frame-timing scenario from tools/perf/calibrate.js into whatever is currently loaded on the live connection, and returns p50/p95/p99 (600 frames, first 120 discarded as warmup by default - same as the recorded noise floor in tools/perf/noise-floor.md, so results are directly comparable). Does not boot or resize the Player; reports the live resolution and flags whether it matches the 1920x1080 baseline. 15s timeout; returns a structured error/timeout instead of hanging if the page can't complete the scenario in time.",
+      description: "Injects the fixed frame-timing scenario from tools/perf/calibrate.js into whatever is currently loaded on the live connection, and returns p50/p95/p99 compared against this machine's saved noise floor (recorded by perf_calibrate). If no floor is saved on this machine it measures nothing and returns needsCalibration: true - then tell the user, call perf_calibrate, and call perf_measure again. Reports the live resolution, Cohtml version and display frame period and whether each matches the floor's, and omits withinNoiseFloor when this display is faster than the floor's (readings aren't comparable). Does not boot or resize the Player. Timeout scales with frame count; returns a structured error/timeout instead of hanging if the page can't complete the scenario in time.",
       inputSchema: z.object({
-        frames: z.number().optional().describe("Total frames to collect (default: 600, matching the recorded noise floor)"),
-        warmup: z.number().optional().describe("Frames to discard from the start before computing percentiles (default: 120, matching the recorded noise floor)"),
+        frames: z.number().optional().describe("Total frames to collect (default: the noise floor's own, normally 600)"),
+        warmup: z.number().optional().describe("Frames to discard from the start before computing percentiles (default: the noise floor's own, normally 120)"),
       }),
     },
     async (params) => {
-      log.info(`Running perf measure (frames: ${params.frames ?? 600}, warmup: ${params.warmup ?? 120})`);
       try {
         const result = await perfMeasure(params);
         return {
@@ -627,6 +627,40 @@ function registerTools() {
           isError: true,
         };
       }
+    }
+  );
+
+  // Perf Calibrate tool
+  mcpServer.registerTool(
+    "perf_calibrate",
+    {
+      description:
+        "Records this machine's frame-timing noise floor, which perf_measure compares against, and saves it next to the user's config (~/.gameface-mcp/noise-floor.json). Call it when perf_measure returns needsCalibration, or when perf_measure warns that the display, resolution or Cohtml version no longer match the floor. Tell the user first: it starts a separate Player window several times (about a minute or two in total). Uses the Player launch_browser last started (else the default) at the live viewport size; the user's own Player and connection are left alone.",
+      inputSchema: z.object({
+        playerPath: z.string().optional().describe("Player to calibrate with (default: the one launch_browser last started, else the configured default)"),
+        runs: z.number().optional().describe("Player restarts to record (default: 5)"),
+        frames: z.number().optional().describe("Frames per run (default: 600)"),
+        warmup: z.number().optional().describe("Frames discarded at the start of each run (default: 120)"),
+        width: z.number().optional().describe("Viewport width (default: the live Player's, else 1920)"),
+        height: z.number().optional().describe("Viewport height (default: the live Player's, else 1080)"),
+      }),
+    },
+    async (params, extra) => {
+      // Runs take a while; progress keeps clients that support it from timing out.
+      const progressToken = extra._meta?.progressToken;
+      const result = await perfCalibrate(params, async (done, total, run) => {
+        if (progressToken === undefined) return;
+        await extra
+          .sendNotification({
+            method: "notifications/progress",
+            params: { progressToken, progress: done, total, message: `Run ${done}/${total}: p50 ${run.p50.toFixed(2)} ms` },
+          })
+          .catch(() => {});
+      });
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        isError: !result.success,
+      };
     }
   );
 
