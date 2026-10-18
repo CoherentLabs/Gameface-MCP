@@ -1,9 +1,57 @@
 import { spawn, ChildProcess } from "child_process";
 import { EventEmitter } from "events";
+import { dirname, isAbsolute, resolve } from "path";
+import { pathToFileURL } from "url";
 import { createLogger } from "./logger.js";
 import { compareCohtmlVersions, extractCohtmlVersion, MIN_RECOMMENDED_COHTML_VERSION } from "./connection-manager.js";
 
 const log = createLogger("BrowserLauncher");
+
+// Player options whose value is a filesystem path (or, for --url, may be one).
+const PATH_OPTIONS = new Set(["--root", "--config"]);
+const URL_OPTIONS = new Set(["--url"]);
+
+/** A URL with a scheme (file://, coui://, http://) is left alone; anything else is a path. */
+function hasUrlScheme(value: string): boolean {
+  return /^[a-z][a-z0-9+.-]+:/i.test(value) && !isAbsolute(value);
+}
+
+function absolutePath(value: string): string {
+  return isAbsolute(value) ? value : resolve(value);
+}
+
+/** --url takes comma-separated URLs (one per view); relative paths become file:// URLs. */
+function absoluteUrls(value: string): string {
+  return value
+    .split(",")
+    .map((u) => (u && !hasUrlScheme(u) ? pathToFileURL(absolutePath(u)).href : u))
+    .join(",");
+}
+
+/**
+ * Player runs with its own folder as the working directory (see launch()), so
+ * relative paths the user wrote against their project - --root, --config, and
+ * page URLs - are made absolute here, against this server's working directory,
+ * which is what they meant before the cwd changed.
+ */
+export function absolutizePlayerArgs(args: string[]): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    const eq = arg.indexOf("=");
+    const name = eq === -1 ? arg : arg.slice(0, eq);
+    const fix = PATH_OPTIONS.has(name) ? absolutePath : URL_OPTIONS.has(name) ? absoluteUrls : null;
+
+    if (fix && eq !== -1) {
+      out.push(`${name}=${fix(arg.slice(eq + 1))}`);
+    } else if (fix && i + 1 < args.length && !args[i + 1].startsWith("-")) {
+      out.push(arg, fix(args[++i]));
+    } else {
+      out.push(arg);
+    }
+  }
+  return out;
+}
 
 export interface BrowserLaunchOptions {
   executablePath: string;
@@ -60,7 +108,8 @@ export class BrowserLauncher extends EventEmitter {
       this.browserProcess = null;
     }
 
-    const { executablePath, args = [], url, port = 9444, timeout = 20000 } = options;
+    const { args = [], url, port = 9444, timeout = 20000 } = options;
+    const executablePath = absolutePath(options.executablePath);
     this.debuggingPort = port;
 
     // Build arguments for remote debugging
@@ -68,20 +117,27 @@ export class BrowserLauncher extends EventEmitter {
       `--remote-debugging-port=${port}`,
       "--no-first-run",
       "--no-default-browser-check",
-      ...args,
+      ...absolutizePlayerArgs(args),
     ];
 
     // Add URL if provided
     if (url) {
-      browserArgs.push(url);
+      browserArgs.push(absoluteUrls(url));
     }
 
+    // Player writes CohtmlApplication*.log, PlayerConfig.ini, imgui.ini and
+    // driver cache folders into its working directory. Inheriting ours would
+    // drop them into whatever project the agent is working in, so run it from
+    // its own folder - the same as starting Player.exe by double-clicking it.
+    const cwd = dirname(executablePath);
+
     // Log launch details
-    log.info(`Launching browser: ${executablePath}`);
+    log.info(`Launching browser: ${executablePath} (cwd: ${cwd})`);
     log.info(`Args: ${browserArgs.join(" ")}`);
 
     // Spawn the browser process
     const child = spawn(executablePath, browserArgs, {
+      cwd,
       detached: false,
       stdio: ["ignore", "pipe", "pipe"],
     });

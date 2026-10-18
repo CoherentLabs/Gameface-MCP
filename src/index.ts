@@ -305,23 +305,29 @@ function registerTools() {
   mcpServer.registerTool(
     "take_screenshot",
     {
-      description: "Captures a screenshot of the current page with support for full page, viewport, and custom clipping",
+      description:
+        "Captures a PNG screenshot of the Gameface Player's viewport, or of a clip area inside it. Gameface can't capture content outside the viewport, so there is no true full-page capture.",
       inputSchema: z.object({
-        fullPage: z.boolean().optional().describe("Whether to capture the entire page (default: true)"),
+        fullPage: z
+          .boolean()
+          .optional()
+          .describe("Still captures only the viewport, but adds a note saying how much of the page lies outside it (default: false)"),
         clipArea: z.object({
           x: z.number().describe("X coordinate of the clip area"),
           y: z.number().describe("Y coordinate of the clip area"),
           width: z.number().describe("Width of the clip area"),
           height: z.number().describe("Height of the clip area"),
-        }).optional().describe("Optional clipping rectangle for custom screenshot area"),
+        }).optional().describe("Optional clipping rectangle inside the viewport; anything outside the viewport is cropped"),
       }),
     },
     async (params) => {
-      log.info(`Taking screenshot (fullPage: ${params.fullPage ?? true})`);
       try {
         const result = await takeScreenshot(params);
         return {
-          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          content: [
+            { type: "image", data: result.data, mimeType: result.mimeType },
+            ...(result.note ? [{ type: "text" as const, text: result.note }] : []),
+          ],
         };
       } catch (error: any) {
         return {

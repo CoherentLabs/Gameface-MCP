@@ -125,6 +125,7 @@ export interface TakeScreenshotResult {
   type: "image";
   data: string; // base64 encoded image
   mimeType: "image/png";
+  note?: string; // set when part of the requested area couldn't be captured
   annotations?: Record<string, any>;
   _meta?: Record<string, any>;
 }

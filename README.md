@@ -14,7 +14,7 @@ Version history is in [CHANGELOG.md](CHANGELOG.md).
 
 ## Prerequisites
 
-- Node.js 18+ (the server uses the global `fetch` API).
+- Node.js 20+.
 - A local Gameface/Cohtml SDK install with a Player executable. This repo
   does not ship one — you need your own Gameface license/SDK. On Windows
   that's typically `.../Player/Player.exe` inside your SDK's install
@@ -275,7 +275,7 @@ Under the hood, a command sends a fixed request to the agent, which calls the
 | `search_dom` | Searches the DOM for nodes matching a text or XPath query. |
 | `get_computed_styles` | Computed CSS styles for a given node. |
 | `interact_element` | Click, type, hover, focus, scrollIntoView, or touch on an element. |
-| `take_screenshot` | Captures a screenshot (full page, viewport, or a custom clip rect). |
+| `take_screenshot` | Captures the viewport, or a custom clip rect inside it, as an image. Gameface can't capture outside the viewport, so `fullPage` only adds a note when part of the page is off-screen. |
 | `eval_js` | Executes arbitrary JavaScript in the connected page and returns the result. |
 | `get_console_logs` | Buffered console messages and Log-domain entries (errors, warnings, deprecations). |
 | `assert_text_fits` | Checks whether an element's content overflows its own box (`scrollWidth`/`scrollHeight` vs `clientWidth`/`clientHeight`). |

@@ -21,6 +21,34 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   said "Connects to a running browser via Chrome DevTools Protocol", which
   read as an invitation to point it at Chrome. It and the other
   connection-related tools now name Gameface Player.
+- `launch_browser` no longer leaves Player files in your project. Player wrote
+  `CohtmlApplication*.log`, `PlayerConfig.ini`, `imgui.ini` and driver cache
+  folders into its working directory, which was the server's (usually the
+  project root). It now runs from its own folder, as when started by
+  double-clicking. Relative `--root`, `--config` and page URLs are made
+  absolute against the server's directory first, so they still point where
+  they did.
+- `take_screenshot` works with no arguments. It defaulted to `fullPage: true`,
+  which needs `Page.getLayoutMetrics`, and Gameface returns that empty, so the
+  first screenshot always failed. Gameface also can't capture outside the
+  viewport, so full-page capture isn't possible. The tool now captures the
+  viewport, and `fullPage: true` adds a note when part of the page is
+  off-screen. `clipArea` no longer needs `fullPage: false` to take effect.
+- `take_screenshot` returns an MCP image the agent can see, not the base64 PNG
+  inside a JSON text block.
+
+### Security
+
+- `npm audit` is clean. `@modelcontextprotocol/sdk` now requires `^1.32.1`,
+  past the 1.12.0–1.30.1 advisory, and the lockfile was refreshed. This clears
+  the advisories in `proxy-addr`, `hono`, `@hono/node-server`, `ip-address`,
+  `fast-uri`, `ws`, `body-parser` and `qs`. None were reachable over the stdio
+  transport, but an HTTP transport would expose them.
+
+### Changed
+
+- Requires Node 20 or later (was 18). Node 18 is end-of-life, and the patched
+  `@hono/node-server` 2.x that the SDK now resolves to declares Node 20+.
 
 ## [1.2.0] - 2026-10-15
 
