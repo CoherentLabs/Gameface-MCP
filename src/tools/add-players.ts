@@ -55,12 +55,15 @@ function addResolved(resolved: Resolved[]): AddPlayersResult {
  */
 export async function addPlayersToList(params: AddPlayersParams): Promise<AddPlayersResult> {
   if (params.search) {
-    const { result, note, added } = await searchAndAddPlayers();
+    const { result, note, added, saveFailed } = await searchAndAddPlayers();
     if (result.candidates.length === 0) {
       return {
         success: false,
         message: `${note} The search found no Player.exe${result.timedOut ? " within the time limit" : ""}. Ask the user for the paths and call add_players with paths.`,
       };
+    }
+    if (saveFailed) {
+      return { success: false, message: note };
     }
     return { success: true, message: `${note} The default Player was not changed.`, added };
   }

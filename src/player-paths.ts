@@ -72,14 +72,16 @@ export async function findPlayersIn(input: string): Promise<{ resolvedPath: stri
  * The Player a plain launch starts. --browser-executable from the MCP client
  * config wins when it exists; when it doesn't, the saved Player takes over and
  * `notice` tells the user to fix the arg - on every launch, for as long as the
- * bad arg is still there. No `path` means neither is usable.
+ * bad arg is still there. No `path` means neither is usable - a saved Player
+ * that was moved or deleted counts as unusable, so the configured Players are
+ * offered instead of launching a missing file.
  */
 export function resolveDefaultPlayer(): { path?: string; notice?: string } {
   const { cliBrowserExecutable: cli, browserExecutable: saved } = getConfig();
-  if (!cli) return { path: saved };
+  const usable = saved && isFile(saved) ? saved : undefined;
+  if (!cli) return { path: usable };
   if (isFile(cli)) return { path: cli };
 
-  const usable = saved && isFile(saved) ? saved : undefined;
   return {
     path: usable,
     notice:
@@ -105,9 +107,10 @@ export function existingPlayers(includeDefault: boolean): string[] {
 
 /**
  * Runs the search and adds every Player found to the config's players list.
- * `note` says how that went, for the tool result; `added` is what was new.
+ * `note` says how that went, for the tool result; `added` is what was new;
+ * `saveFailed` means the Players were found but could not be saved.
  */
-export async function searchAndAddPlayers(): Promise<{ result: PlayerSearchResult; note: string; added: string[] }> {
+export async function searchAndAddPlayers(): Promise<{ result: PlayerSearchResult; note: string; added: string[]; saveFailed?: boolean }> {
   const result = await searchForPlayers(SEARCH_TIMEOUT_MS);
   const seconds = Math.round(result.elapsedMs / 1000);
   let note = `Searched ${result.foldersScanned} folders in ${seconds}s.`;
@@ -115,15 +118,16 @@ export async function searchAndAddPlayers(): Promise<{ result: PlayerSearchResul
     return { result, note, added: [] };
   }
 
-  // A failure here (e.g. an unreadable config file) is only logged: the
-  // caller's own config write hits the same problem and reports it in full.
-  let added: string[] = [];
+  // A failure here (e.g. an unreadable config file) is not thrown:
+  // set_player_path's own config write hits the same problem and reports it
+  // in full, while add_players has no later write and reports saveFailed.
   try {
-    added = addPlayers(result.candidates.map((c) => c.path));
+    const added = addPlayers(result.candidates.map((c) => c.path));
     note += ` Found ${result.candidates.length} Players; ${added.length} were new and added to the players list.`;
+    return { result, note, added };
   } catch (error: any) {
     log.warn(`Could not add found Players to the config: ${error.message}`);
     note += ` Found ${result.candidates.length} Players, but could not add them to the players list: ${error.message}`;
+    return { result, note, added: [], saveFailed: true };
   }
-  return { result, note, added };
 }
