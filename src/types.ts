@@ -17,6 +17,8 @@ export interface LaunchBrowserResult {
   message: string;
   cohtmlVersion?: string;
   versionWarning?: string;
+  /** Set while --browser-executable in the MCP client config points nowhere. */
+  notice?: string;
 }
 
 // Connect Browser Tool
@@ -200,6 +202,37 @@ export interface GamefaceRestartResult {
   message: string;
   port?: number;
   pid?: number;
+}
+
+// Set Player Path Tool
+export interface SetPlayerPathParams {
+  playerPath?: string;
+  search?: boolean;
+}
+
+export interface SetPlayerPathResult {
+  success: boolean;
+  message: string;
+  playerPath?: string;
+  configFile?: string;
+  warning?: string;
+  /** Every Player an automatic search found, newest first. */
+  candidates?: string[];
+}
+
+// Add Players Tool
+export interface AddPlayersParams {
+  search?: boolean;
+  paths?: string[];
+}
+
+export interface AddPlayersResult {
+  success: boolean;
+  message: string;
+  /** Players newly added to the list. */
+  added?: string[];
+  /** Paths that didn't lead to a Player.exe. */
+  invalid?: string[];
 }
 
 // Shared geometry type for assertion tools

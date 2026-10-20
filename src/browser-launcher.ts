@@ -81,10 +81,11 @@ export class BrowserLauncher extends EventEmitter {
     log.info(`Args: ${browserArgs.join(" ")}`);
 
     // Spawn the browser process
-    this.browserProcess = spawn(executablePath, browserArgs, {
+    const child = spawn(executablePath, browserArgs, {
       detached: false,
       stdio: ["ignore", "pipe", "pipe"],
     });
+    this.browserProcess = child;
 
     const pid = this.browserProcess.pid;
 
@@ -96,7 +97,9 @@ export class BrowserLauncher extends EventEmitter {
 
     this.browserProcess.on("exit", (code, signal) => {
       log.info(`Browser process exited with code ${code}, signal ${signal}`);
-      this.browserProcess = null;
+      // A killed Player can exit after a newer launch has replaced it - only
+      // clear the handle if it is still this process's.
+      if (this.browserProcess === child) this.browserProcess = null;
       this.emit("exit", code, signal);
     });
 
@@ -126,7 +129,21 @@ export class BrowserLauncher extends EventEmitter {
     });
 
     // Give browser time to start
-    const versionInfo = await Promise.race([this.waitForDebuggerReady(port, timeout), spawnErrorPromise]);
+    let versionInfo;
+    try {
+      versionInfo = await Promise.race([this.waitForDebuggerReady(port, timeout), spawnErrorPromise]);
+    } catch (error) {
+      // A spawn failure (ENOENT etc.) never fires "exit", so without this the
+      // handle stays set and isRunning() blocks every later launch. A Player
+      // that started but whose debug port never answered is killed too, and
+      // waited for - kill() only sends the signal, and a retry must not start
+      // while the old Player still holds the port.
+      if (this.browserProcess === child) {
+        if (child.pid) await this.close();
+        else this.browserProcess = null;
+      }
+      throw error;
+    }
 
     // Only Gameface Player is allowed here - refuse (and kill) anything else,
     // e.g. a plain Chrome/Chromium binary passed as executablePath. Gameface's
@@ -228,7 +245,7 @@ export class BrowserLauncher extends EventEmitter {
       const onExit = () => {
         log.info("Browser process closed successfully");
         clearTimeout(forceKillTimer);
-        this.browserProcess = null;
+        if (this.browserProcess === process) this.browserProcess = null;
         resolve();
       };
 

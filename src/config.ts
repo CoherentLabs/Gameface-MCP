@@ -1,6 +1,6 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 
 /**
  * Server configuration, resolved from (lowest to highest precedence):
@@ -8,7 +8,14 @@ import { join } from "node:path";
  */
 
 export interface ServerConfig {
+  /** The saved default Player, from the config file (set_player_path writes it). */
   browserExecutable?: string;
+  /**
+   * --browser-executable from the MCP client config. Kept apart from the saved
+   * path rather than overwriting it, so a stale or mistyped CLI path can fall
+   * back to the saved one - see resolveDefaultPlayer().
+   */
+  cliBrowserExecutable?: string;
   browserArgs: string[];
   port: number;
   cdpHost: string;
@@ -19,6 +26,11 @@ export interface ServerConfig {
    * launched in rather than the home-directory config folder.
    */
   perfBudgetFile?: string;
+  /**
+   * Other Players the user can pick from at launch (launch_browser's
+   * choosePlayer). browserExecutable stays the default for every plain launch.
+   */
+  players: string[];
 }
 
 interface ConfigFileShape {
@@ -27,6 +39,7 @@ interface ConfigFileShape {
   port?: number;
   cdpHost?: string;
   perfBudgetFile?: string;
+  players?: string[];
 }
 
 // One config file per developer machine, not per-project - this server is
@@ -35,12 +48,26 @@ interface ConfigFileShape {
 // every project's committed mcp.json.
 const DEFAULT_CONFIG_PATH = join(homedir(), ".gameface-mcp", "config.json");
 
+// The config file actually in use (--config can point elsewhere), so that
+// savePlayerPath() writes back to the same file the settings were read from.
+let configPath = DEFAULT_CONFIG_PATH;
+
+// What savePlayerPath() seeds a brand-new config file with - the recommended
+// setup from the README, so first-run users get --enable-gui=false without
+// having to know about it.
+const NEW_CONFIG_FILE_DEFAULTS: ConfigFileShape = {
+  browserArgs: ["--enable-gui=false"],
+  port: 9444,
+  cdpHost: "localhost",
+};
+
 // Default configuration
 let config: ServerConfig = {
   browserExecutable: undefined,
   browserArgs: [],
   port: 9444,
   cdpHost: "localhost",
+  players: [],
 };
 
 function findConfigFlag(args: string[]): string | undefined {
@@ -73,7 +100,7 @@ function loadConfigFile(configPath: string): ConfigFileShape {
  * overridden by any CLI flags actually passed.
  */
 export function parseArgs(args: string[]): ServerConfig {
-  const configPath = findConfigFlag(args) || DEFAULT_CONFIG_PATH;
+  configPath = findConfigFlag(args) || DEFAULT_CONFIG_PATH;
   const fileConfig = loadConfigFile(configPath);
 
   const config: ServerConfig = {
@@ -82,6 +109,7 @@ export function parseArgs(args: string[]): ServerConfig {
     port: fileConfig.port ?? 9444,
     cdpHost: fileConfig.cdpHost || "localhost",
     perfBudgetFile: fileConfig.perfBudgetFile,
+    players: Array.isArray(fileConfig.players) ? fileConfig.players : [],
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -90,7 +118,7 @@ export function parseArgs(args: string[]): ServerConfig {
     switch (arg) {
       case "--browser-executable":
       case "-b":
-        config.browserExecutable = args[++i];
+        config.cliBrowserExecutable = args[++i];
         break;
 
       case "--browser-args":
@@ -142,16 +170,16 @@ export function parseArgs(args: string[]): ServerConfig {
  */
 function printHelp(): void {
   console.error(`
-Chrome CDP MCP Server - Command Line Options
+Gameface MCP Server - Command Line Options
 
-Usage: chrome-cdp-mcp [options]
+Usage: gameface-mcp [options]
 
 Options:
-  -b, --browser-executable <path>   Path to browser executable (Chrome, Edge, Brave, etc.)
+  -b, --browser-executable <path>   Path to the Gameface Player executable
                                      If not specified, tools require explicit path
-  
-  -a, --browser-args <args>         Comma-separated browser arguments
-                                     Example: "--headless=new,--disable-gpu"
+
+  -a, --browser-args <args>         Comma-separated Player arguments
+                                     Example: "--enable-gui=false"
                                      Default: none
   
   -p, --port <port>                 Remote debugging port
@@ -185,17 +213,17 @@ Config file:
   The file and every field in it are optional.
 
 Examples:
-  # Use default Chrome location
-  chrome-cdp-mcp --browser-executable "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
+  # Point at a specific Player build
+  gameface-mcp --browser-executable "D:\\path\\to\\sdk\\Player\\Player.exe"
 
   # Launch with custom args and port
-  chrome-cdp-mcp -b chrome.exe -a "--headless=new,--disable-gpu" -p 9223
+  gameface-mcp -b Player.exe -a "--enable-gui=false" -p 9223
 
-  # Connect to existing browser on custom port
-  chrome-cdp-mcp -p 9223
+  # Connect to an already-running Player on a custom port
+  gameface-mcp -p 9223
 
   # Rely entirely on ~/.gameface-mcp/config.json - no CLI flags needed
-  chrome-cdp-mcp
+  gameface-mcp
 
 Notes:
   - stdout is reserved for MCP protocol communication
@@ -216,4 +244,77 @@ export function setConfig(newConfig: ServerConfig): void {
  */
 export function getConfig(): ServerConfig {
   return config;
+}
+
+/**
+ * Gets the path of the config file in use
+ */
+export function getConfigPath(): string {
+  return configPath;
+}
+
+/**
+ * Read-modify-write of the config file in use, keeping every field `update`
+ * doesn't touch. A missing file is created from NEW_CONFIG_FILE_DEFAULTS.
+ */
+function updateConfigFile(update: (fileConfig: ConfigFileShape) => void): void {
+  let fileConfig: ConfigFileShape;
+  let isNewFile = false;
+  try {
+    fileConfig = JSON.parse(readFileSync(configPath, "utf8"));
+  } catch (error: any) {
+    // A missing file is the normal first-run case. An unparseable one is not:
+    // overwriting it would silently drop whatever the user had in it.
+    if (error.code !== "ENOENT") {
+      throw new Error(`Config file at ${configPath} exists but could not be read (${error.message}). Fix or remove it, then try again.`);
+    }
+    // browserExecutable first, so a new file reads like the README example.
+    fileConfig = { browserExecutable: undefined, ...NEW_CONFIG_FILE_DEFAULTS };
+    isNewFile = true;
+  }
+
+  update(fileConfig);
+  mkdirSync(dirname(configPath), { recursive: true });
+  writeFileSync(configPath, JSON.stringify(fileConfig, null, 2) + "\n", "utf8");
+
+  // The server started without this file, so it never read the default args.
+  // Apply them now, unless --browser-args already set some.
+  if (isNewFile && config.browserArgs.length === 0) {
+    config.browserArgs = [...NEW_CONFIG_FILE_DEFAULTS.browserArgs!];
+  }
+}
+
+/**
+ * Persists the Player path to the config file in use, keeping every other
+ * field in it, and applies it to the running server. Returns the file written.
+ */
+export function savePlayerPath(playerPath: string): string {
+  updateConfigFile((fileConfig) => {
+    fileConfig.browserExecutable = playerPath;
+  });
+  // Mutate rather than replace: registerTools() holds on to this same object,
+  // so launch_browser picks the new path up without a restart.
+  config.browserExecutable = playerPath;
+  return configPath;
+}
+
+/**
+ * Adds Players to the `players` list in the config file (skipping ones already
+ * there) and to the running server. Returns the ones that were new.
+ */
+export function addPlayers(paths: string[]): string[] {
+  const key = (p: string) => (process.platform === "win32" ? p.toLowerCase() : p);
+  const newOnes = (existing: string[]) => {
+    const seen = new Set(existing.map(key));
+    return paths.filter((p) => !seen.has(key(p)) && !!seen.add(key(p)));
+  };
+
+  let added: string[] = [];
+  updateConfigFile((fileConfig) => {
+    const existing = Array.isArray(fileConfig.players) ? fileConfig.players : [];
+    added = newOnes(existing);
+    fileConfig.players = [...existing, ...added];
+  });
+  config.players = [...config.players, ...newOnes(config.players)];
+  return added;
 }
