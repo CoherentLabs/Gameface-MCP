@@ -5,6 +5,77 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [1.3.0] - 2026-10-20
+
+### Added
+
+- `perf_calibrate` records this machine's frame-timing noise floor and saves
+  it to `~/.gameface-mcp/noise-floor.json`. It starts a separate Player for
+  each run (5 by default) using the Player last launched, at the live viewport
+  size, and sends a progress notification after each run.
+
+### Fixed
+
+- `assert_text_fits`, `assert_no_overlap` and `assert_within_parent` no longer
+  refuse elements whose center is covered by something else. They used to find
+  the element with `elementFromPoint` at its center, which hit a child for most
+  containers, hit the overlay for anything under one, and hit a slightly
+  different box for transformed elements. They now look up the node's position
+  in the `DOM.getDocument` tree and walk the same path in JS, so any element in
+  the tree can be checked. Passing a text node or a stale ID now gives a clear
+  error.
+- Tool descriptions no longer describe a generic browser. `connect_browser`
+  said "Connects to a running browser via Chrome DevTools Protocol", which
+  read as an invitation to point it at Chrome. It and the other
+  connection-related tools now name Gameface Player.
+- `launch_browser` no longer leaves Player files in your project. Player wrote
+  `CohtmlApplication*.log`, `PlayerConfig.ini`, `imgui.ini` and driver cache
+  folders into its working directory, which was the server's (usually the
+  project root). It now runs from its own folder, as when started by
+  double-clicking. Relative `--root`, `--config` and page URLs are made
+  absolute against the server's directory first, so they still point where
+  they did.
+- `take_screenshot` works with no arguments. It defaulted to `fullPage: true`,
+  which needs `Page.getLayoutMetrics`, and Gameface returns that empty, so the
+  first screenshot always failed. Gameface also can't capture outside the
+  viewport, so full-page capture isn't possible. The tool now captures the
+  viewport, and `fullPage: true` adds a note when part of the page is
+  off-screen. `clipArea` no longer needs `fullPage: false` to take effect.
+- `take_screenshot` returns an MCP image the agent can see, not the base64 PNG
+  inside a JSON text block.
+- `perf_measure` compares against a noise floor recorded on this machine
+  instead of the one shipped in the package. Idle frame times follow the
+  display's refresh rate, and the shipped floor was recorded over Remote
+  Desktop at 32 Hz, so on a 120 Hz display every reading passed, even for a UI
+  three times slower. With no floor saved, `perf_measure` now returns
+  `needsCalibration: true` and tells the agent to run `perf_calibrate` first.
+- `perf_measure` checks the display's frame period against the floor's. It
+  reports `framePeriodMs`, `baselineFramePeriodMs` and
+  `framePeriodMatchesBaseline`. On a faster display it omits
+  `withinNoiseFloor` and explains why in `warning`; on a slower one it keeps
+  the verdict and warns. Resolution and Cohtml version mismatches now add a
+  warning suggesting `perf_calibrate` too.
+- `perf_measure` no longer times out on slow displays. The fixed 15 s limit was
+  shorter than 600 frames take at 30 Hz; the limit now scales with the frame
+  count.
+
+### Security
+
+- `npm audit` is clean. `@modelcontextprotocol/sdk` now requires `^1.32.1`,
+  past the 1.12.0–1.30.1 advisory, and the lockfile was refreshed. This clears
+  the advisories in `proxy-addr`, `hono`, `@hono/node-server`, `ip-address`,
+  `fast-uri`, `ws`, `body-parser` and `qs`. None were reachable over the stdio
+  transport, but an HTTP transport would expose them.
+
+### Changed
+
+- The noise floor is per machine, in `~/.gameface-mcp/noise-floor.json`.
+  `tools/perf/noise-floor.md` is no longer shipped, and
+  `scripts/measure-frame-noise-floor.mjs` now writes to the per-machine file
+  and shares its implementation with `perf_calibrate`.
+- Requires Node 20 or later (was 18). Node 18 is end-of-life, and the patched
+  `@hono/node-server` 2.x that the SDK now resolves to declares Node 20+.
+
 ## [1.2.0] - 2026-10-15
 
 Installed from npm instead of a clone, and a guided Player setup: the agent

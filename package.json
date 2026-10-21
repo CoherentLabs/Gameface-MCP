@@ -13,7 +13,7 @@
     "tools/perf"
   ],
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "scripts": {
     "build": "tsc",
@@ -41,7 +41,7 @@
     "url": "https://github.com/CoherentLabs/Gameface-MCP/issues"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@modelcontextprotocol/sdk": "^1.32.1",
     "chrome-remote-interface": "^0.34.0"
   },
   "devDependencies": {

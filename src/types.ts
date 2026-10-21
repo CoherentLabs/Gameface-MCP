@@ -125,6 +125,7 @@ export interface TakeScreenshotResult {
   type: "image";
   data: string; // base64 encoded image
   mimeType: "image/png";
+  note?: string; // set when part of the requested area couldn't be captured
   annotations?: Record<string, any>;
   _meta?: Record<string, any>;
 }
@@ -360,6 +361,31 @@ export interface PerfMeasureParams {
   warmup?: number;
 }
 
+export interface PerfCalibrateParams {
+  playerPath?: string;
+  runs?: number;
+  frames?: number;
+  warmup?: number;
+  width?: number;
+  height?: number;
+}
+
+export interface PerfCalibrateResult {
+  success: boolean;
+  error?: string;
+  message?: string;
+  noiseFloorPath?: string;
+  resolution?: { width: number; height: number };
+  cohtmlVersion?: string;
+  framePeriodMs?: number;
+  runs?: number;
+  spread?: {
+    p50: { min: number; max: number };
+    p95: { min: number; max: number };
+    p99: { min: number; max: number };
+  };
+}
+
 export interface PerfMeasureResult {
   success: boolean;
   timedOut?: boolean;
@@ -372,6 +398,15 @@ export interface PerfMeasureResult {
   resolutionMatchesBaseline?: boolean;
   cohtmlVersion?: string;
   cohtmlVersionMatchesBaseline?: boolean;
+  /** Estimated display frame period (p5 of frame times) - idle frames land on vsync. */
+  framePeriodMs?: number;
+  baselineFramePeriodMs?: number;
+  framePeriodMatchesBaseline?: boolean;
+  /** Why the baseline comparison is weaker than usual, or was omitted. */
+  warning?: string;
+  /** No usable noise floor on this machine - run perf_calibrate, then measure again. */
+  needsCalibration?: boolean;
+  noiseFloorPath?: string;
   noiseFloor?: {
     p50: { min: number; max: number };
     p95: { min: number; max: number };

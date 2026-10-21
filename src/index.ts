@@ -23,6 +23,7 @@ import { assertTextFits, assertNoOverlap, assertWithinParent } from "./tools/ass
 import { searchGamefaceDocs } from "./tools/search-gameface-docs.js";
 import { perfLint } from "./tools/perf-lint.js";
 import { perfMeasure } from "./tools/perf-measure.js";
+import { perfCalibrate } from "./tools/perf-calibrate.js";
 import { perfTrace } from "./tools/perf-trace.js";
 import { perfProfile } from "./tools/perf-profile.js";
 import { checkMemory, getImageCacheStats } from "./tools/memory.js";
@@ -75,7 +76,7 @@ function registerTools() {
     {
       description: "Launches the Gameface Player with remote debugging enabled - the configured default unless told otherwise. Pass choosePlayer: true to let the user pick from their configured Players.",
       inputSchema: z.object({
-        executablePath: z.string().optional().describe("Path to the browser executable (uses CLI --browser-executable if not specified)"),
+        executablePath: z.string().optional().describe("Path to the Gameface Player executable (uses CLI --browser-executable if not specified)"),
         args: z.array(z.string()).optional().describe("Additional command-line arguments (merged with CLI --browser-args)"),
         url: z.string().optional().describe("Initial URL to navigate to"),
         port: z.number().optional().describe("Remote debugging port (uses CLI --port if not specified)"),
@@ -168,7 +169,7 @@ function registerTools() {
   mcpServer.registerTool(
     "connect_browser",
     {
-      description: "Connects to a running browser via Chrome DevTools Protocol",
+      description: "Connects to a running Gameface Player over its remote debugging (CDP) port. Only Gameface Player targets are accepted.",
       inputSchema: z.object({
         port: z.number().optional().describe("Remote debugging port (uses CLI --port if not specified)"),
         host: z.string().optional().describe("Host address (uses CLI --cdp-host if not specified)"),
@@ -196,7 +197,7 @@ function registerTools() {
   mcpServer.registerTool(
     "get_console_logs",
     {
-      description: "Retrieves buffered console messages and Log domain entries from the connected browser. Includes Runtime console API calls (console.log, console.error, etc.) and browser Log entries (network errors, security warnings, deprecations, etc.)",
+      description: "Retrieves buffered console messages and Log domain entries from the connected Gameface Player. Includes Runtime console API calls (console.log, console.error, etc.) and Player Log entries (network errors, security warnings, deprecations, etc.)",
       inputSchema: z.object({
         clear: z.boolean().optional().describe("Whether to clear the buffer after retrieving (default: false)"),
         filterLevel: z.string().optional().describe("Optional filter by message type/level. For Runtime console messages: log, error, warning, info, debug, exception. For Log domain entries: verbose, info, warning, error"),
@@ -305,23 +306,29 @@ function registerTools() {
   mcpServer.registerTool(
     "take_screenshot",
     {
-      description: "Captures a screenshot of the current page with support for full page, viewport, and custom clipping",
+      description:
+        "Captures a PNG screenshot of the Gameface Player's viewport, or of a clip area inside it. Gameface can't capture content outside the viewport, so there is no true full-page capture.",
       inputSchema: z.object({
-        fullPage: z.boolean().optional().describe("Whether to capture the entire page (default: true)"),
+        fullPage: z
+          .boolean()
+          .optional()
+          .describe("Still captures only the viewport, but adds a note saying how much of the page lies outside it (default: false)"),
         clipArea: z.object({
           x: z.number().describe("X coordinate of the clip area"),
           y: z.number().describe("Y coordinate of the clip area"),
           width: z.number().describe("Width of the clip area"),
           height: z.number().describe("Height of the clip area"),
-        }).optional().describe("Optional clipping rectangle for custom screenshot area"),
+        }).optional().describe("Optional clipping rectangle inside the viewport; anything outside the viewport is cropped"),
       }),
     },
     async (params) => {
-      log.info(`Taking screenshot (fullPage: ${params.fullPage ?? true})`);
       try {
         const result = await takeScreenshot(params);
         return {
-          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          content: [
+            { type: "image", data: result.data, mimeType: result.mimeType },
+            ...(result.note ? [{ type: "text" as const, text: result.note }] : []),
+          ],
         };
       } catch (error: any) {
         return {
@@ -363,7 +370,7 @@ function registerTools() {
   mcpServer.registerTool(
     "navigate",
     {
-      description: "Navigates to a different URL in the browser using Page.navigate",
+      description: "Navigates to a different URL in the connected Gameface Player using Page.navigate",
       inputSchema: z.object({
         url: z.string().describe("The URL to navigate to"),
         waitUntil: z.enum(["documentUpdated"]).optional().describe("Optional wait condition: documentUpdated (wait for document update)"),
@@ -390,7 +397,7 @@ function registerTools() {
   mcpServer.registerTool(
     "eval_js",
     {
-      description: "Executes arbitrary JavaScript code in the browser context using Runtime.evaluate. Returns the result value, type, and handles exceptions.",
+      description: "Executes arbitrary JavaScript code in the connected Gameface Player's page context using Runtime.evaluate. Returns the result value, type, and handles exceptions.",
       inputSchema: z.object({
         expression: z.string().describe("JavaScript expression or code to evaluate"),
         awaitPromise: z.boolean().optional().describe("Whether to await promises (default: false)"),
@@ -419,7 +426,7 @@ function registerTools() {
   mcpServer.registerTool(
     "gameface_get_status",
     {
-      description: "Returns the current browser connection status. Checks if there is an active connection to a browser.",
+      description: "Returns the current connection status: whether this server is connected to a Gameface Player.",
       inputSchema: z.object({}),
     },
     async (params) => {
@@ -442,7 +449,7 @@ function registerTools() {
   mcpServer.registerTool(
     "gameface_restart",
     {
-      description: "Restarts the launched browser by closing it, disconnecting, relaunching with the same parameters, and reconnecting. Requires a browser to have been previously launched and connected.",
+      description: "Restarts the launched Gameface Player by closing it, disconnecting, relaunching with the same parameters, and reconnecting. Requires a Player to have been previously launched and connected.",
       inputSchema: z.object({}),
     },
     async (params) => {
@@ -601,14 +608,13 @@ function registerTools() {
   mcpServer.registerTool(
     "perf_measure",
     {
-      description: "Injects the fixed frame-timing scenario from tools/perf/calibrate.js into whatever is currently loaded on the live connection, and returns p50/p95/p99 (600 frames, first 120 discarded as warmup by default - same as the recorded noise floor in tools/perf/noise-floor.md, so results are directly comparable). Does not boot or resize the Player; reports the live resolution and flags whether it matches the 1920x1080 baseline. 15s timeout; returns a structured error/timeout instead of hanging if the page can't complete the scenario in time.",
+      description: "Injects the fixed frame-timing scenario from tools/perf/calibrate.js into whatever is currently loaded on the live connection, and returns p50/p95/p99 compared against this machine's saved noise floor (recorded by perf_calibrate). If no floor is saved on this machine it measures nothing and returns needsCalibration: true - then tell the user, call perf_calibrate, and call perf_measure again. Reports the live resolution, Cohtml version and display frame period and whether each matches the floor's, and omits withinNoiseFloor when this display is faster than the floor's (readings aren't comparable). Does not boot or resize the Player. Timeout scales with frame count; returns a structured error/timeout instead of hanging if the page can't complete the scenario in time.",
       inputSchema: z.object({
-        frames: z.number().optional().describe("Total frames to collect (default: 600, matching the recorded noise floor)"),
-        warmup: z.number().optional().describe("Frames to discard from the start before computing percentiles (default: 120, matching the recorded noise floor)"),
+        frames: z.number().optional().describe("Total frames to collect (default: the noise floor's own, normally 600)"),
+        warmup: z.number().optional().describe("Frames to discard from the start before computing percentiles (default: the noise floor's own, normally 120)"),
       }),
     },
     async (params) => {
-      log.info(`Running perf measure (frames: ${params.frames ?? 600}, warmup: ${params.warmup ?? 120})`);
       try {
         const result = await perfMeasure(params);
         return {
@@ -621,6 +627,40 @@ function registerTools() {
           isError: true,
         };
       }
+    }
+  );
+
+  // Perf Calibrate tool
+  mcpServer.registerTool(
+    "perf_calibrate",
+    {
+      description:
+        "Records this machine's frame-timing noise floor, which perf_measure compares against, and saves it next to the user's config (~/.gameface-mcp/noise-floor.json). Call it when perf_measure returns needsCalibration, or when perf_measure warns that the display, resolution or Cohtml version no longer match the floor. Tell the user first: it starts a separate Player window several times (about a minute or two in total). Uses the Player launch_browser last started (else the default) at the live viewport size; the user's own Player and connection are left alone.",
+      inputSchema: z.object({
+        playerPath: z.string().optional().describe("Player to calibrate with (default: the one launch_browser last started, else the configured default)"),
+        runs: z.number().optional().describe("Player restarts to record (default: 5)"),
+        frames: z.number().optional().describe("Frames per run (default: 600)"),
+        warmup: z.number().optional().describe("Frames discarded at the start of each run (default: 120)"),
+        width: z.number().optional().describe("Viewport width (default: the live Player's, else 1920)"),
+        height: z.number().optional().describe("Viewport height (default: the live Player's, else 1080)"),
+      }),
+    },
+    async (params, extra) => {
+      // Runs take a while; progress keeps clients that support it from timing out.
+      const progressToken = extra._meta?.progressToken;
+      const result = await perfCalibrate(params, async (done, total, run) => {
+        if (progressToken === undefined) return;
+        await extra
+          .sendNotification({
+            method: "notifications/progress",
+            params: { progressToken, progress: done, total, message: `Run ${done}/${total}: p50 ${run.p50.toFixed(2)} ms` },
+          })
+          .catch(() => {});
+      });
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        isError: !result.success,
+      };
     }
   );
 
