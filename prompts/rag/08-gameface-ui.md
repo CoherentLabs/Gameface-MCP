@@ -90,7 +90,7 @@ src/
   components/
     Basic/                  ← Button, Checkbox, Dropdown, Slider, etc.
     Layout/                 ← Row, Column, Flex, Scroll, Tabs, etc.
-    Media/                  ← Image, Icon, LiveView, MaskImage, etc.
+    Media/                  ← Image, LiveView, MaskImage, etc.
     custom-components/      ← your own components
   views/
     hud/
@@ -139,7 +139,7 @@ GamefaceUI ships five component categories:
 | **Feedback** | Modal, Toast, Tooltip, ProgressBar, ProgressCircle |
 | **Complex** | Carousel, ColorPicker, RadialMenu, Tutorial |
 | **Layout** | Row, Column, Flex, Grid, Scroll, Tabs, Tab, TabLink, Absolute, Relative, Block, Layout, Layout3D |
-| **Media** | Image, BackgroundImage, Icon, LiveView, MaskImage |
+| **Media** | Image, LiveView, MaskImage (BackgroundImage and Icon are deprecated since 5.0.0 — use Image) |
 | **Utility** | Navigation |
 
 Import components from `@components/<Category>/<Name>/<Name>`:
@@ -390,9 +390,9 @@ Full API documentation for each component is in the referenced RAG files below. 
 
 | Component | Description | RAG File |
 |-----------|-------------|----------|
-| `BackgroundImage` | Container with CSS background-image supporting size, repeat, and position options | `09_5-components-media.md` |
-| `Icon` | Auto-generated dot-notation icon component tree mirroring the `src/assets/icons/` folder | `09_5-components-media.md` |
-| `Image` | `<img>` element wrapper for imported asset files with optional fill mode | `09_5-components-media.md` |
+| `BackgroundImage` | **Deprecated since 5.0.0**, removed from the boilerplate — use `Image` with `options` | `09_5-components-media.md` |
+| `Icon` | **Deprecated since 5.0.0**, removed from the boilerplate — use `Image.icons.<path>` dot paths | `09_5-components-media.md` |
+| `Image` | `div` with a background image; raster assets under `src/assets` exposed as typed dot paths (`<Image.icons.hud.grenade />`) that the atlas plugin can pack; `src` for SVGs and outside assets; `options` for background mode | `09_5-components-media.md` |
 | `LiveView` | Embeds an engine-rendered texture (minimap, camera feed, 3D scene) into the HTML UI | `09_5-components-media.md` |
 | `MaskImage` | Container with CSS mask-image applied over children; content visible through opaque mask regions | `09_5-components-media.md` |
 

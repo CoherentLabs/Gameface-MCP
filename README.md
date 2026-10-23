@@ -282,6 +282,7 @@ Under the hood, a command sends a fixed request to the agent, which calls the
 | `assert_no_overlap` | Checks whether two elements' rendered boxes intersect. |
 | `assert_within_parent` | Checks whether an element stays within its parent/an ancestor/the viewport. |
 | `search_gameface_docs` | Searches the Gameface RAG documentation corpus (`prompts/rag/`) for guidance relevant to a query. |
+| `get_code_instructions` | Returns the Gameface UI coding constraints - same content as the `gameface://code-instructions` resource, for agents that can't read resources (e.g. subagents with an explicit `tools` list). |
 | `perf_lint` | Static, deterministic structural check for layout patterns the Gameface docs name as expensive (e.g. `align-items: stretch`, unsized flex items, `display: simple` misuse). No timing involved. |
 | `perf_measure` | Injects the fixed frame-timing scenario from `tools/perf/calibrate.js` into the live connection and reports p50/p95/p99 against this machine's noise floor. Asks for `perf_calibrate` first when none is saved. |
 | `perf_calibrate` | Records this machine's noise floor (separate Player, several runs) and saves it to `~/.gameface-mcp/noise-floor.json`. |

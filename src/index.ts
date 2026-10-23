@@ -56,8 +56,8 @@ const mcpServer = new McpServer(
       "Before writing or modifying Gameface UI markup, CSS, or JS, call the " +
       "search_gameface_docs tool with a query describing what you're building " +
       "(e.g. 'flexbox layout', 'text overflow', 'localization RTL') to retrieve " +
-      "relevant guidance from the Gameface documentation corpus, and read the " +
-      "gameface://code-instructions resource for hard engine constraints. After " +
+      "relevant guidance from the Gameface documentation corpus, and call the " +
+      "get_code_instructions tool for hard engine constraints. After " +
       "making layout changes, use assert_text_fits, assert_no_overlap, and " +
       "assert_within_parent to verify the result before considering the change done.",
   }
@@ -568,6 +568,31 @@ function registerTools() {
         const result = await searchGamefaceDocs(params);
         return {
           content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      } catch (error: any) {
+        return {
+          content: [{ type: "text", text: JSON.stringify({ error: error.message }, null, 2) }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // Get Code Instructions tool - same content as the gameface://code-instructions
+  // resource, for agents that can't read MCP resources (e.g. subagents limited
+  // to an explicit tools list).
+  mcpServer.registerTool(
+    "get_code_instructions",
+    {
+      description: "Returns the Gameface UI coding constraints: unsupported HTML/CSS/JS and negative rules the engine enforces. Same content as the gameface://code-instructions resource. Read this before writing or modifying Gameface UI code.",
+      inputSchema: z.object({}),
+    },
+    async () => {
+      log.info("Reading code instructions");
+      try {
+        const resource = await getCodeInstructionsResource();
+        return {
+          content: [{ type: "text", text: resource.contents[0].text }],
         };
       } catch (error: any) {
         return {
