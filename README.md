@@ -275,6 +275,8 @@ Under the hood, a command sends a fixed request to the agent, which calls the
 | `search_dom` | Searches the DOM for nodes matching a text or XPath query. |
 | `get_computed_styles` | Computed CSS styles for a given node. |
 | `interact_element` | Click, type, hover, focus, scrollIntoView, or touch on an element. |
+| `press_key` | Simulates keyboard input for text entry, navigation, shortcuts, and held or repeated keys. Reports the events received by the page and the resulting focus. |
+| `gamepad_input` | Simulates a gamepad, including buttons, D-pad and analog sticks. Can inspect controller state or play multi-step input sequences, and reports resulting state, events and focus. |
 | `take_screenshot` | Captures the viewport, or a custom clip rect inside it, as an image. Gameface can't capture outside the viewport, so `fullPage` only adds a note when part of the page is off-screen. |
 | `eval_js` | Executes arbitrary JavaScript in the connected page and returns the result. |
 | `get_console_logs` | Buffered console messages and Log-domain entries (errors, warnings, deprecations). |
@@ -429,6 +431,26 @@ Engine behaviour these tools work around, verified on Cohtml 3.2.0.2:
   silently ignored.
 - `engine.unregisterModel` takes the model object too, and a string argument
   crashes the Player process, so these tools never call it.
+
+## Keyboard and gamepad tools
+
+`press_key` and `gamepad_input` let you test UI flows with the same input
+patterns used by the
+[Gameface E2E framework](https://frontend-tools.coherent-labs.com/e2e/getting-started/).
+
+- **Keyboard** supports text entry, navigation, shortcuts and modifier
+  combinations, as well as holding or repeating keys. Input can be directed to
+  an element, and the tool reports the keyboard events received by the page
+  and the resulting focus.
+- **Gamepad** supports standard controller buttons, the D-pad and analog
+  sticks. You can connect or disconnect a controller, inspect its current
+  state, and run multi-step button and stick sequences. Input is coordinated
+  with the page's polling so presses register predictably across different
+  polling rates, including for menu navigation and repeat behavior.
+
+Both tools report the events received by the page and resulting focus. Gamepad
+sequences also report the outcome after each step, making it easier to verify
+multi-action flows.
 
 ## Available resources
 
