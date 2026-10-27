@@ -63,3 +63,11 @@ A new agent is a new `agents/<name>.md` whose `name` matches the file name.
 
 Client names: `claude`, `copilot`, `cursor`, `codex`, `gemini`. If the build
 stops with an error, the message names the file and line to fix.
+
+## Frontmatter reference per client
+
+- Claude Code: https://code.claude.com/docs/en/sub-agents
+- GitHub Copilot: https://docs.github.com/en/copilot/reference/custom-agents-configuration
+- Cursor: https://cursor.com/docs/subagents
+- Codex: https://learn.chatgpt.com/docs/agent-configuration/subagents?surface=app#app-custom-agents
+- Gemini CLI: https://geminicli.com/docs/core/subagents/#creating-custom-subagents
