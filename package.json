@@ -18,6 +18,7 @@
   "scripts": {
     "build": "tsc",
     "watch": "tsc --watch",
+    "build:agents": "node scripts/agents/build-agents.mjs",
     "prepare": "npm run build"
   },
   "keywords": [
