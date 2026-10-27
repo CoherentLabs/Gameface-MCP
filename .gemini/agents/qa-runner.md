@@ -6,30 +6,30 @@ tools:
   - read_many_files
   - glob
   - grep_search
-  - list_mcp_resources
   - read_mcp_resource
-  - mcp_gameface_assert_no_overlap
-  - mcp_gameface_assert_text_fits
-  - mcp_gameface_assert_within_parent
+  - list_mcp_resources
+  - mcp_gameface_launch_browser
   - mcp_gameface_connect_browser
+  - mcp_gameface_get_console_logs
+  - mcp_gameface_get_dom_tree
+  - mcp_gameface_get_computed_styles
+  - mcp_gameface_interact_element
+  - mcp_gameface_take_screenshot
+  - mcp_gameface_search_dom
+  - mcp_gameface_navigate
   - mcp_gameface_eval_js
   - mcp_gameface_gameface_get_status
-  - mcp_gameface_get_code_instructions
-  - mcp_gameface_get_computed_styles
-  - mcp_gameface_get_console_logs
-  - mcp_gameface_get_data_binding_models
-  - mcp_gameface_get_dom_tree
-  - mcp_gameface_get_image_cache_stats
-  - mcp_gameface_inspect_data_bindings
-  - mcp_gameface_interact_element
-  - mcp_gameface_launch_browser
-  - mcp_gameface_navigate
-  - mcp_gameface_search_dom
+  - mcp_gameface_assert_text_fits
+  - mcp_gameface_assert_no_overlap
+  - mcp_gameface_assert_within_parent
   - mcp_gameface_search_gameface_docs
-  - mcp_gameface_set_data_binding_model
+  - mcp_gameface_get_code_instructions
+  - mcp_gameface_get_image_cache_stats
+  - mcp_gameface_get_data_binding_models
+  - mcp_gameface_inspect_data_bindings
   - mcp_gameface_set_data_binding_value
+  - mcp_gameface_set_data_binding_model
   - mcp_gameface_sync_data_binding_models
-  - mcp_gameface_take_screenshot
 max_turns: 60
 timeout_mins: 20
 ---

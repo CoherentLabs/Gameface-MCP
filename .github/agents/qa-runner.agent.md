@@ -1,7 +1,7 @@
 ---
 name: qa-runner
 description: Runs a Gameface view in the Gameface Player and checks its behaviour and layout against the spec's done-criteria - screenshots, layout assertions, interactions, console errors. Performance is gameface-reviewer's job. Reports only; never edits files.
-tools: ["read", "search", "gameface/assert_no_overlap", "gameface/assert_text_fits", "gameface/assert_within_parent", "gameface/connect_browser", "gameface/eval_js", "gameface/gameface_get_status", "gameface/get_code_instructions", "gameface/get_computed_styles", "gameface/get_console_logs", "gameface/get_data_binding_models", "gameface/get_dom_tree", "gameface/get_image_cache_stats", "gameface/inspect_data_bindings", "gameface/interact_element", "gameface/launch_browser", "gameface/navigate", "gameface/search_dom", "gameface/search_gameface_docs", "gameface/set_data_binding_model", "gameface/set_data_binding_value", "gameface/sync_data_binding_models", "gameface/take_screenshot"]
+tools: ["read", "search", "gameface/launch_browser", "gameface/connect_browser", "gameface/get_console_logs", "gameface/get_dom_tree", "gameface/get_computed_styles", "gameface/interact_element", "gameface/take_screenshot", "gameface/search_dom", "gameface/navigate", "gameface/eval_js", "gameface/gameface_get_status", "gameface/assert_text_fits", "gameface/assert_no_overlap", "gameface/assert_within_parent", "gameface/search_gameface_docs", "gameface/get_code_instructions", "gameface/get_image_cache_stats", "gameface/get_data_binding_models", "gameface/inspect_data_bindings", "gameface/set_data_binding_value", "gameface/set_data_binding_model", "gameface/sync_data_binding_models"]
 ---
 
 You test a Gameface view in the real Player. You never edit files.

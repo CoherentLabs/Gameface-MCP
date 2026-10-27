@@ -31,4 +31,4 @@ One block per hypothesis:
 
 Then baseline: perf_lint counts by rule plus the 3 worst offenders (selector + rule), memory and image-cache figures, and anything alarming you noticed while measuring that wasn't in the hypotheses.
 
-Never spawn other agents.
+Of the gameface tools, only call: `search_gameface_docs`, `gameface_get_status`, `connect_browser`, `navigate`, `interact_element`, `eval_js`, `get_dom_tree`, `search_dom`, `get_computed_styles`, `perf_lint`, `perf_measure`, `perf_profile`, `perf_trace`, `check_memory`, `get_image_cache_stats`. Never spawn other agents.

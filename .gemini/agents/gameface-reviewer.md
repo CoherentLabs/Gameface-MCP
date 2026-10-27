@@ -4,10 +4,10 @@ description: Reviews Gameface UI code (TSX/CSS) for engine constraints, correctn
 tools:
   - read_file
   - read_many_files
-  - glob
   - grep_search
-  - list_mcp_resources
+  - glob
   - read_mcp_resource
+  - list_mcp_resources
   - mcp_gameface_get_code_instructions
   - mcp_gameface_search_gameface_docs
 ---

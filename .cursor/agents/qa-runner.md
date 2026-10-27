@@ -28,4 +28,4 @@ Report with exactly these sections (write "None" if empty):
 3. **Unchecked**: criteria you couldn't verify, and why.
 4. **Blocked**: anything that stopped you testing.
 
-Never call these tools: `gameface_restart`, `set_player_path`, `add_players`, `perf_lint`, `perf_measure`, `perf_calibrate`, `perf_profile`, `perf_trace`, `check_memory`. Never spawn other agents.
+Never call these gameface tools: `set_player_path`, `add_players`, `gameface_restart`, `perf_lint`, `perf_measure`, `perf_calibrate`, `perf_profile`, `perf_trace`, `check_memory`. Never spawn other agents.

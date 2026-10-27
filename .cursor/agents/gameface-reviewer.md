@@ -39,3 +39,5 @@ Fold its verdicts into your report: confirmed perf issues stay as findings with 
 
 ## Report
 A short list, most severe first, each as `file:line — problem — why it matters in Gameface (docs citation or measurement) — suggested fix`. Give each finding a short id (`R1`, `R2`, ...) so a re-check can refer to it. Tag each `[correctness]` or `[perf]`. A `[perf]` finding needs a measurement from the verifier or a docs citation. Then one paragraph: perf_lint counts by rule and the verifier's key numbers. If nothing is wrong, say so in one line.
+
+Of the gameface tools, only call: `get_code_instructions`, `search_gameface_docs`.

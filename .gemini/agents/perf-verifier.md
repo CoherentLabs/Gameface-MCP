@@ -4,8 +4,8 @@ description: Measures suspected performance issues in a Gameface view running in
 tools:
   - read_file
   - read_many_files
-  - glob
   - grep_search
+  - glob
   - mcp_gameface_search_gameface_docs
   - mcp_gameface_gameface_get_status
   - mcp_gameface_connect_browser
