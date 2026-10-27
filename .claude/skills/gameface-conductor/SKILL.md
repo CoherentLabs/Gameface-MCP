@@ -123,18 +123,28 @@ the view is loaded in the Player.
 
 ### With review agents (preferred)
 
-If your host can delegate to subagents and the `qa-runner` and
-`gameface-reviewer` agents are available, hand validation to them instead
-of checking your own work. They start with no context and judge the result
-against the spec, not against your reasoning.
+If your host can delegate to subagents, hand validation to the `qa-runner`
+and `gameface-reviewer` agents instead of checking your own work. They start
+with no context and judge the result against the spec, not against your
+reasoning.
+
+Use whichever of them is available. If one is missing, or replies
+"Blocked" (e.g. it has no gameface MCP tools), do its part yourself with the
+checks under **Without review agents**: steps 1-4 replace `qa-runner`; steps
+5-6, plus re-reading your changed files against `get_code_instructions`,
+replace `gameface-reviewer`. If neither is available, skip to that section.
 
 1. **QA first.** Dispatch `qa-runner` with: the spec file path, the view URL,
    the Player's debug port, and the list of files you changed. Nothing else -
    don't explain your implementation choices.
 2. **Then review.** Once QA has finished, dispatch `gameface-reviewer` with
    the same four items. It reads the code and spawns its own `perf-verifier`
-   to measure suspected perf issues in the Player. Never run the two at the
-   same time: both use the one Player.
+   to measure suspected perf issues in the Player. On hosts where subagents
+   can't spawn agents it returns a `## Perf hypotheses` section instead:
+   dispatch `perf-verifier` with those hypotheses, the view URL and the debug
+   port, or, if `perf-verifier` isn't available, measure them yourself with
+   `perf_measure` / `perf_profile`. Never run two agents at the same time:
+   they all use the one Player.
 3. **Fix.** Treat their findings as the to-do list. Fix what's in scope; for
    anything that is really a spec question, ask the user rather than
    guessing. Don't dismiss a finding because you disagree with it - fix it,
@@ -170,4 +180,6 @@ State: what was asked vs. assumed, what was accepted in the spec sign-off,
 what was built, which checks passed (or that validation wasn't possible).
 If the review agents ran: done-criteria passed / failed / unchecked from QA,
 reviewer findings fixed vs. still open, and how many fix rounds it took.
+Name any agent that was missing or blocked and whose checks you ran
+yourself instead.
 Don't claim "done" if Stage 3 sign-off never happened.
