@@ -4,31 +4,21 @@ description: >
   Use whenever the user asks to design, build, or modify a game UI screen,
   panel, or component (inventory, HUD element, dialog, shop, settings panel,
   roster, notification, dialogue tree, map screen, etc.) and the request
-  reads as a rough idea rather than a full spec. Runs a bounded round of
-  clarifying questions grounded in general game-UI design dimensions
-  (interaction, animation, data/state, scale, accessibility, localization),
-  gets explicit sign-off on the resulting spec, then implements and - if a
-  Gameface MCP connection is available - validates the live result before
-  calling it done.
-  Skip when: it's a bug fix, a style/copy tweak to an existing screen, or the
-  request already names specific interactions, states, and data shape (i.e.
-  already reads like a spec).
+  reads as a rough idea, or the user hands over a written spec/plan file to
+  build. For a rough idea it runs a bounded round of clarifying questions
+  grounded in general game-UI design dimensions (interaction, animation,
+  data/state, scale, accessibility, localization) and gets explicit sign-off
+  on the resulting spec; a provided spec skips the questions. Then it
+  implements and - if a Gameface MCP connection is available - validates the
+  live result before calling it done.
+  Skip when: it's a bug fix or a style/copy tweak to an existing screen.
 ---
 
 # Game UI Conductor
 
-Read by more than one host (Claude Code auto-triggers this via `.claude/skills/`;
-GitHub Copilot auto-discovers the same file directly, since it scans
-`.claude/skills/` in addition to `.github/skills/`; Gemini CLI has no
-auto-triggered skill concept, so it reaches this file via an explicit
-`/gameface-conductor` command that embeds it). Because of that, avoid
-naming a specific host tool where a generic description works just as well
-- e.g. "explicit tracked state" rather than a literal tool name - so the
-instructions read correctly regardless of which agent picked this up.
-
 Runs in two halves: **clarify** (Stages 1-2, no tool dependency at all) and
 **build** (Stages 3-4, uses the Gameface MCP server if one is connected).
-Never skip straight to implementation - the clarify half is the actual point
+For a rough idea, never skip straight to implementation - the clarify half is the actual point
 of this skill; without it you're back to guessing at unstated behavior.
 
 **Before Stage 1, explicitly track each stage below as its own step** (Stage
@@ -40,6 +30,18 @@ once a draft has merely been written. **Do not start Stage 4 (or write any
 code) until Stage 3 is marked done.** This is a hard precondition, not a
 suggestion: if you find yourself about to edit or create a file and Stage 3
 is still pending, stop and go back to it first.
+
+## If the user provided a spec
+
+When the user points to a spec or plan file (or pastes a full spec) and asks
+you to build it, the spec already exists and asking for it is the go-ahead:
+
+- Mark Stages 1-2 done as skipped. Don't ask clarifying questions.
+- Stage 3: read the spec. If it has numbered done-criteria, mark Stage 3
+  done. If it doesn't, draft done-criteria from it, append them to the
+  file, and get sign-off on just those before Stage 4.
+- Anything in the spec that's ambiguous or contradictory while you build:
+  ask, don't guess.
 
 ## Stage 1 — Reason about relevant dimensions
 
@@ -83,7 +85,11 @@ done in your tracking, then move to Stage 3 as its own explicit step.
 ## Stage 3 — Draft the spec and get explicit sign-off
 
 Write a short spec: Goals / Interactions / Data & state / Scale /
-Accessibility / Localization / Assumptions. Then ask directly (not buried in
+Accessibility / Localization / Assumptions / Done-criteria. Done-criteria
+are a numbered list of checks a tester can run against the live view
+(behaviour, layout, states to screenshot); Stage 5 tests against them.
+Save the spec to a file in the project so Stage 5 can hand over its path.
+Then ask directly (not buried in
 prose): **"Here's the draft spec - do you want me to start building this,
 or is something off?"**
 
@@ -97,13 +103,51 @@ or is something off?"**
 ## Stage 4 — Implement
 
 Standard rules apply and don't need repeating here: follow
-`gameface://code-instructions`, call `search_gameface_docs` while writing
+`get_code_instructions`, call `search_gameface_docs` while writing
 CSS/JS (this is already in the Gameface MCP server's own `instructions`
 field - just follow it, don't duplicate it in this skill).
 
 ## Stage 5 — Validate (only if a Gameface MCP connection is available)
 
-Before reporting the feature as done:
+Before reporting the feature as done, start the dev server and make sure
+the view is loaded in the Player.
+
+### With review agents (preferred)
+
+If your host can delegate to subagents, hand validation to the `qa-runner`
+and `gameface-reviewer` agents instead of checking your own work. They start
+with no context and judge the result against the spec, not against your
+reasoning.
+
+Use whichever of them is available. If one is missing, or replies
+"Blocked" (e.g. it has no gameface MCP tools), do its part yourself with the
+checks under **Without review agents**: steps 1-4 replace `qa-runner`; steps
+5-6, plus re-reading your changed files against `get_code_instructions`,
+replace `gameface-reviewer`. If neither is available, skip to that section.
+
+1. **QA first.** Dispatch `qa-runner` with: the spec file path, the view URL,
+   the Player's debug port, and the list of files you changed. Nothing else -
+   don't explain your implementation choices.
+2. **Then review.** Once QA has finished, dispatch `gameface-reviewer` with
+   the same four items. It reads the code and spawns its own `perf-verifier`
+   to measure suspected perf issues in the Player. On hosts where subagents
+   can't spawn agents it returns a `## Perf hypotheses` section instead:
+   dispatch `perf-verifier` with those hypotheses, the view URL and the debug
+   port, or, if `perf-verifier` isn't available, measure them yourself with
+   `perf_measure` / `perf_profile`. Never run two agents at the same time:
+   they all use the one Player.
+3. **Fix.** Treat their findings as the to-do list. Fix what's in scope; for
+   anything that is really a spec question, ask the user rather than
+   guessing. Don't dismiss a finding because you disagree with it - fix it,
+   or report it as open with your reason.
+4. **Re-check.** Dispatch fresh agents again with a `Re-check:` line naming
+   only the failed done-criteria (QA) or finding ids (reviewer), plus the
+   files the fixes touched. At most 2 fix rounds; after that, stop and
+   report what's still open.
+
+### Without review agents
+
+Run the checks yourself:
 
 1. `get_dom_tree` / `search_dom` for the nodeIds of: the root container,
    every text-bearing element, anything meant to stay inside a bound.
@@ -125,4 +169,8 @@ silently omit that validation didn't happen.
 
 State: what was asked vs. assumed, what was accepted in the spec sign-off,
 what was built, which checks passed (or that validation wasn't possible).
+If the review agents ran: done-criteria passed / failed / unchecked from QA,
+reviewer findings fixed vs. still open, and how many fix rounds it took.
+Name any agent that was missing or blocked and whose checks you ran
+yourself instead.
 Don't claim "done" if Stage 3 sign-off never happened.

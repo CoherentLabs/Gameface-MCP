@@ -34,11 +34,57 @@ Use `transition` on discrete UI state changes — panel open/close, button hover
 }
 .inventory-panel.open {
     opacity: 1;
-    transform: translateY(0);
+    transform: translateY(0rem);
 }
 ```
 
 Toggle the class from JavaScript when the state changes. The animation runs entirely on the compositor thread.
+
+Both `transform` endpoints use the same function and unit (`translateY(2rem)` → `translateY(0rem)`). See "Transform Transition Units" below — mismatched units animate to the wrong place, and the build's minifier strips the unit from `0rem`.
+
+---
+
+---
+[TOPIC: animations] [TYPE: constraint] [SEVERITY: critical] [SOURCE: verified in Gameface Player (frame-by-frame getComputedStyle sampling)]
+## Transform Transition Units: Match Both Endpoints
+
+Gameface interpolates transform function arguments numerically, using the **start** value's unit, and never resolves units. Both endpoints of a transform transition must use the same function list with the same units.
+
+- `translateX(0px)` → `translateX(110%)` animates toward 110 **pixels**, then snaps to 110% on the last frame.
+- `none` → `scale(1.1)` has the same problem.
+- Matching units interpolate correctly: `translateX(0%)` → `translateX(110%)`, `scale(1)` → `scale(1.1)`.
+
+```css
+/* ❌ Animates toward 110px, then jumps to 110% */
+.handle { transform: translateX(0px); transition: transform 0.2s ease; }
+.toggle.on .handle { transform: translateX(110%); }
+
+/* ❌ No function list to interpolate from */
+.card { transform: none; transition: transform 0.2s ease; }
+.card:hover { transform: scale(1.1); }
+
+/* ✅ Same function, same unit */
+.card { transform: scale(1); transition: transform 0.2s ease; }
+.card:hover { transform: scale(1.1); }
+```
+
+**The minifier breaks correct source CSS.** Vite's CSS minifier (esbuild) strips units from zero values: `translateX(0%)` → `translate(0)`, `translate(0%, -50%)` → `translateY(-50%)`. That is harmless for a static transform but breaks transition endpoints. Route the animated value through a custom property — esbuild can't evaluate `var()`, so the unit survives:
+
+```css
+/* ✅ Survives minification */
+.handle {
+    --handle-x: 0%;
+    transform: translateX(var(--handle-x));
+    transition: transform 0.2s ease;
+}
+.toggle.on .handle {
+    --handle-x: 110%;
+}
+```
+
+Setting `build.cssMinify: false` in `vite.config.mts` also works, but costs ~20% CSS size.
+
+> ⚠️ GAMEFACE CONSTRAINT: Don't work around this by animating `left`/`top` instead — that forces a full layout solve every frame. Keep animating `transform`, with matching units on both endpoints.
 
 ---
 
@@ -59,7 +105,7 @@ Use `@keyframes` for effects that require more than 2 states, have precise timin
 
 @keyframes slide-in-from-top {
     from { transform: translateY(-100%); opacity: 0; }
-    to   { transform: translateY(0);     opacity: 1; }
+    to   { transform: translateY(0%);    opacity: 1; }
 }
 .notification-toast {
     animation: slide-in-from-top 0.3s ease-out forwards;
@@ -77,7 +123,7 @@ Use `@keyframes` for effects that require more than 2 states, have precise timin
 ```css
 .toast-notification {
     opacity: 1;
-    transform: translateY(0);
+    transform: translateY(0rem);
     transition: opacity 0.3s ease, transform 0.3s ease;
 }
 @starting-style {

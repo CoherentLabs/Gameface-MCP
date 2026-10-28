@@ -137,8 +137,10 @@ Animate position with `transform: translateX()` instead of `left`/`margin-left` 
 @keyframes float-bad { from { top: 0; } to { top: -5rem; } }
 
 /* ✅ Cheap transform update only */
-@keyframes float-good { from { transform: translateY(0); } to { transform: translateY(-5rem); } }
+@keyframes float-good { from { transform: translateY(0rem); } to { transform: translateY(-5rem); } }
 ```
+
+Keep the same function and unit on both transform endpoints (`translateY(0rem)` → `translateY(-5rem)`, not `translateY(0)`): Gameface interpolates in the start value's unit without resolving units, and Vite's minifier strips the unit from zeros. See "Transform Transition Units" in `14-animations.md`.
 
 ---
 

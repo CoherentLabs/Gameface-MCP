@@ -27,9 +27,12 @@ Version history is in [CHANGELOG.md](CHANGELOG.md).
    ```bash
    npx add-mcp "npx -y gameface-mcp@latest" --name gameface -g
    ```
-2. Optionally, install the [Gameface UI Conductor skill](#gameface-ui-conductor-skill):
+2. Optionally, install the [Gameface UI Conductor skill](#gameface-ui-conductor-skill)
+   into your project (other clients: see
+   [The Conductor skill](#the-conductor-skill-optional)), and copy in the
+   review [agents](#agents):
    ```bash
-   npx skills add CoherentLabs/Gameface-MCP --agent claude-code -g
+   npx skills add CoherentLabs/Gameface-MCP --agent claude-code
    ```
 3. Start your agent and ask it to launch the Gameface Player. The first time,
    the server asks you where your Player is — see [Player setup](#player-setup).
@@ -172,17 +175,24 @@ Precedence, lowest to highest: built-in defaults → config file → flags.
 ### The Conductor skill (optional)
 
 The [Gameface UI Conductor skill](#gameface-ui-conductor-skill) is **not**
-part of the npm package; install it separately:
+part of the npm package. Install it into your project with the command for
+your client:
 
-```bash
-npx skills add CoherentLabs/Gameface-MCP --agent claude-code
-```
+| Client | Command |
+|---|---|
+| Claude Code | `npx skills add CoherentLabs/Gameface-MCP --agent claude-code` |
+| VS Code (GitHub Copilot) | `npx skills add CoherentLabs/Gameface-MCP --agent github-copilot` |
+| Cursor | `npx skills add CoherentLabs/Gameface-MCP --agent cursor` |
+| Codex | `npx skills add CoherentLabs/Gameface-MCP --agent codex` |
+| Gemini CLI | `npx skills add CoherentLabs/Gameface-MCP --agent gemini-cli` |
 
-This copies it into the project's `.claude/skills/`; add `-g` to install it
-into `~/.claude/skills/` instead, for every project. Pass `--agent`
-explicitly: without it, the interactive picker installs into the shared
-`.agents/skills/` folder, which Claude Code doesn't read. Start a new session
-afterwards.
+Claude Code gets it in `.claude/skills/`; the other clients share
+`.agents/skills/`. Pass `--agent` explicitly: without it, the interactive
+picker installs into `.agents/skills/`, which Claude Code doesn't read. Start
+a new session afterwards.
+
+The conductor validates its work with the review [agents](#agents); install
+them too.
 
 ## Player setup
 
@@ -282,6 +292,7 @@ Under the hood, a command sends a fixed request to the agent, which calls the
 | `assert_no_overlap` | Checks whether two elements' rendered boxes intersect. |
 | `assert_within_parent` | Checks whether an element stays within its parent/an ancestor/the viewport. |
 | `search_gameface_docs` | Searches the Gameface RAG documentation corpus (`prompts/rag/`) for guidance relevant to a query. |
+| `get_code_instructions` | Returns the Gameface UI coding constraints - same content as the `gameface://code-instructions` resource, for agents that can't read resources (e.g. subagents with an explicit `tools` list). |
 | `perf_lint` | Static, deterministic structural check for layout patterns the Gameface docs name as expensive (e.g. `align-items: stretch`, unsized flex items, `display: simple` misuse). No timing involved. |
 | `perf_measure` | Injects the fixed frame-timing scenario from `tools/perf/calibrate.js` into the live connection and reports p50/p95/p99 against this machine's noise floor. Asks for `perf_calibrate` first when none is saved. |
 | `perf_calibrate` | Records this machine's noise floor (separate Player, several runs) and saves it to `~/.gameface-mcp/noise-floor.json`. |
@@ -441,35 +452,49 @@ Engine behaviour these tools work around, verified on Cohtml 3.2.0.2:
 
 ## Gameface UI Conductor skill
 
-`.claude/skills/gameface-conductor/` runs *before and around* the tools
-above: it clarifies unstated requirements for a new UI feature request
-(interaction, animation, data/state, scale, accessibility, localization) in
-up to three question rounds, gets explicit sign-off on a written spec, then
-implements and — if a Gameface MCP connection is available — validates the
-result with the assertion/lint/perf tools above before calling it done.
+The `gameface-conductor` skill runs *before and around* the tools above: it
+clarifies unstated requirements for a new UI feature request (interaction,
+animation, data/state, scale, accessibility, localization) in up to three
+question rounds, gets explicit sign-off on a written spec, then implements
+and — if a Gameface MCP connection is available — validates the result
+before calling it done, with the review [agents](#agents) if they're
+installed, otherwise with the assertion/lint/perf tools above.
 
-It's only available where it's installed — see
-[The Conductor skill](#the-conductor-skill-optional) for installing it into
-your own projects; inside a clone of this repo it's picked up as-is.
+Install it with `npx skills add` — see
+[The Conductor skill](#the-conductor-skill-optional). Once installed, it
+starts automatically when your request matches it, or explicitly with
+`/gameface-conductor` (`$gameface-conductor` in Codex).
 
-This one set of files is shared across clients, not duplicated per client,
-but *how* it gets invoked differs:
+## Agents
 
-| Client | How it's triggered |
+Three review agents check Gameface work in the real Player. **They are
+built on the Gameface MCP server and need it:** without it they stop and say
+so.
+
+| Agent | What it does |
 |---|---|
-| Claude Code | Automatic — matches the skill's `description` against your request, or invoke explicitly with `/gameface-conductor`. |
-| GitHub Copilot (VS Code) | Automatic — Copilot's "Agent Skills" scans `.claude/skills/` by default (in addition to `.github/skills/`), so this file is picked up as-is, no extra setup. |
-| Gemini CLI | **Explicit only** — Gemini CLI has no auto-triggered skill concept, only user-invoked custom commands. Run `/gameface-conductor <your request>`; `.gemini/commands/gameface-conductor.toml` embeds the same `SKILL.md` and `dimensions.md` content via `@{...}` file injection rather than duplicating it. Those paths are relative to this repo, so this only works inside a clone of it. |
+| `qa-runner` | Runs the view in the Player and checks behaviour and layout against a spec's done-criteria, or against what you ask: screenshots, layout assertions, interactions, console errors. |
+| `gameface-reviewer` | Reviews the code against Gameface's engine constraints and the spec (or your request), then hands suspected performance issues to `perf-verifier`. |
+| `perf-verifier` | Measures those performance issues in the Player. Started by `gameface-reviewer`, not by you. |
 
-Because the same file is read by more than one host, its wording avoids
-naming host-specific tools (no literal `TodoWrite`/`AskUserQuestion`
-references) in favor of generic instructions ("track this explicitly",
-"ask as one batch") that each host can fulfill with whatever it has.
+They're the preferred way to validate Gameface UI work: they start with no
+context, so they judge the result, not the reasoning behind it. The
+[Conductor skill](#gameface-ui-conductor-skill) uses them for its validation
+step: `qa-runner` first, then `gameface-reviewer`, then a fix and re-check
+round. Without them it runs the checks itself. You can also call them
+directly, with or without a spec, e.g. "use gameface-reviewer to review
+`src/Hud.tsx`" or "use qa-runner to check that the shop's tabs switch".
 
-I haven't been able to verify the Gemini CLI path against a live session —
-the TOML file is structurally valid and the `@{...}` file-injection syntax
-matches Gemini CLI's documented custom-commands format, but I'd treat it as
-unverified until someone runs `/gameface-conductor` for real.
+To install them, copy your client's folder from this repo into the same
+place in your project, then start a new session:
+
+| Client | Folder |
+|---|---|
+| Claude Code | [`.claude/agents/`](.claude/agents/) |
+| VS Code (GitHub Copilot) | [`.github/agents/`](.github/agents/) |
+| Cursor | [`.cursor/agents/`](.cursor/agents/) |
+| Codex | [`.codex/agents/`](.codex/agents/) |
+| Gemini CLI | [`.gemini/agents/`](.gemini/agents/) |
 
 ## Performance tooling
 
@@ -565,6 +590,9 @@ npm run build
 `npm run build` compiles `src/` to `build/index.js`, the server's entry point.
 `npm run watch` recompiles on change. The repo's `.vscode/mcp.json` runs
 `node build/index.js`, so opening the repo in VS Code uses your local build.
+
+`npm run build:agents` regenerates every client's agent folder from
+`agents/`; see [scripts/agents/README.md](scripts/agents/README.md).
 
 ### Testing in another project
 
