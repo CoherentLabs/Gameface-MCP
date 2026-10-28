@@ -16,15 +16,6 @@ description: >
 
 # Game UI Conductor
 
-Read by more than one host (Claude Code auto-triggers this via `.claude/skills/`;
-GitHub Copilot auto-discovers the same file directly, since it scans
-`.claude/skills/` in addition to `.github/skills/`; Gemini CLI has no
-auto-triggered skill concept, so it reaches this file via an explicit
-`/gameface-conductor` command that embeds it). Because of that, avoid
-naming a specific host tool where a generic description works just as well
-- e.g. "explicit tracked state" rather than a literal tool name - so the
-instructions read correctly regardless of which agent picked this up.
-
 Runs in two halves: **clarify** (Stages 1-2, no tool dependency at all) and
 **build** (Stages 3-4, uses the Gameface MCP server if one is connected).
 For a rough idea, never skip straight to implementation - the clarify half is the actual point

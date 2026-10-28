@@ -13,8 +13,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `gameface://code-instructions` resource, for agents that can't read MCP
   resources, such as subagents limited to an explicit `tools` list. The server
   instructions now point to this tool instead of the resource.
+- Review agents `qa-runner`, `gameface-reviewer` and `perf-verifier` for
+  Claude Code, GitHub Copilot, Cursor, Codex and Gemini CLI. They need the
+  Gameface MCP server, and can be called directly or by the Conductor skill.
+  Each client's folder is generated from `agents/` by `npm run build:agents`.
 
 ### Changed
+
+- The Conductor skill validates with the review agents when they're
+  available, and runs a missing agent's checks itself.
+- The README gives the Conductor skill's install command for every supported
+  client, installing into the project instead of globally.
 
 - Code instructions and RAG docs now require transform transition endpoints
   to use the same function list and units, and to route the animated value
@@ -25,6 +34,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   paths, `options` background mode, atlas plugin) and mark `BackgroundImage`
   and `Icon` as deprecated. The `MaskImage` chunk gains the missing `options`
   prop.
+
+### Removed
+
+- The Gemini CLI `/gameface-conductor` command. Gemini CLI loads the skill
+  itself; install it with `npx skills add CoherentLabs/Gameface-MCP --agent
+  gemini-cli`.
 
 ## [1.3.0] - 2026-10-20
 
