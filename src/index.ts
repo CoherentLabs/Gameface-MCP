@@ -9,6 +9,8 @@ import { getConsoleLogs } from "./tools/console-logs.js";
 import { getDomSnapshot } from "./tools/dom-snapshot.js";
 import { getComputedStyles } from "./tools/computed-styles.js";
 import { interactElement } from "./tools/interact-element.js";
+import { pressKey } from "./tools/keyboard-input.js";
+import { gamepadInput } from "./tools/gamepad-input.js";
 import { takeScreenshot } from "./tools/take-screenshot.js";
 import { searchDom } from "./tools/search-dom.js";
 import { navigate } from "./tools/navigate.js";
@@ -290,6 +292,90 @@ function registerTools() {
       log.info(`Interacting with element ${params.nodeId}: ${params.action}`);
       try {
         const result = await interactElement(params);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      } catch (error: any) {
+        return {
+          content: [{ type: "text", text: JSON.stringify({ error: error.message }, null, 2) }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // Press Key tool
+  mcpServer.registerTool(
+    "press_key",
+    {
+      description:
+        "Sends keyboard input to the page: a full key press, or just the key down or key up to test held keys. Sent through the CDP Input domain, so it reaches the Interaction Manager, spatial navigation and page keydown handlers like a real keyboard. Returns the key events the page received and the element focused afterwards (with its nodeId), so you can check navigation such as 'ArrowDown moves focus to the next item' in one call. Gameface derives event.key from the key code read as a character, so on keydown/keyup non-text keys arrive with odd key values (ArrowDown has key '(') while event.keyCode and event.code are reliable; on keypress, key is the typed character. For typing a string into a text field, interact_element's 'type' action is simpler.",
+      inputSchema: z.object({
+        key: z
+          .union([z.string(), z.number()])
+          .describe("A single character ('a', '5', '/'), a DOM key name ('Enter', 'Escape', 'Tab', 'ArrowDown', 'Space', 'F5'), an E2E gf.KEYS name ('ARROW_DOWN', 'ESC'), or a virtual key code number"),
+        action: z.enum(["press", "down", "up"]).optional().describe("'press' sends down and up; 'down' and 'up' send only that half (default: 'press')"),
+        modifiers: z.number().optional().describe("Keyboard modifiers as bit field: Alt=1, Ctrl=2, Meta=4, Shift=8 (default: 0)"),
+        count: z.number().optional().describe("How many times to repeat the action. Repeated 'down' is sent as auto-repeat, like a held key (default: 1)"),
+        delayMs: z.number().optional().describe("Pause between repeats in milliseconds (default: 50)"),
+        nodeId: z.number().optional().describe("Focus this element first (node ID from get_dom_tree). Without it, the key goes to whatever is focused."),
+      }),
+    },
+    async (params) => {
+      log.info(`Pressing key ${params.key}`);
+      try {
+        const result = await pressKey(params);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      } catch (error: any) {
+        return {
+          content: [{ type: "text", text: JSON.stringify({ error: error.message }, null, 2) }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // Gamepad Input tool
+  const gamepadButton = z.union([z.string(), z.number()]);
+  mcpServer.registerTool(
+    "gamepad_input",
+    {
+      description:
+        "Drives a virtual gamepad in the page, the way the Gameface E2E framework does: navigator.getGamepads is replaced with a shim returning window._gamepads, so the Interaction Manager and any getGamepads() polling see a standard-mapping controller. Press, hold and release buttons, move sticks, or run a sequence of steps to walk a menu. Any input action connects the gamepad first if needed, and a page reload disconnects it. Returns the gamepad state, the gamepad events the page received, and the element focused afterwards (with its nodeId); a sequence also returns the focused element after each step. Presses are synced to the page's polling: the shim sees each getGamepads() read, so a press stays down until every poller has read it once and the call returns once they have read the release. That makes one press fire an Interaction Manager 'hold' action (D-pad navigation) exactly once, whatever the polling interval. Use polls to hold for more reads (to test hold repeat), or durationMs for a fixed-time hold instead. Each press reports its timing.",
+      inputSchema: z.object({
+        action: z
+          .enum(["connect", "disconnect", "press", "hold", "release", "moveStick", "resetSticks", "sequence", "state"])
+          .describe("'press' holds the buttons for durationMs then releases; 'hold' leaves them down until 'release'; 'state' reads without sending input"),
+        gamepadId: z.string().optional().describe("Which virtual gamepad to use; several can be connected at once (default: 'mcp-gamepad')"),
+        buttons: z
+          .union([gamepadButton, z.array(gamepadButton)])
+          .optional()
+          .describe("For press/hold/release. Names: A, B, X, Y, LB, RB, LT, RT, BACK, START, LS, RS, DPAD_UP, DPAD_DOWN, DPAD_LEFT, DPAD_RIGHT, HOME; E2E gf.GAMEPAD_BUTTONS names like FACE_BUTTON_DOWN; or standard-mapping indices 0-16. An array presses them together."),
+        durationMs: z.number().optional().describe("Hold for this many milliseconds instead of syncing to the page's polls. Applies to press, sequence steps, and moveStick (which then returns the stick to center). Without it, a page that doesn't poll gets 210 ms."),
+        polls: z.number().optional().describe("How many times each poller must read a press before it is released (default: 1). For a 'hold' action, N reads fire it N times. With moveStick, makes it a flick that returns to center."),
+        stick: z.enum(["left", "right"]).optional().describe("Stick for moveStick"),
+        x: z.number().optional().describe("Stick X for moveStick, -1 (left) to 1 (right)"),
+        y: z.number().optional().describe("Stick Y for moveStick, -1 (up) to 1 (down)"),
+        steps: z
+          .array(
+            z.union([
+              gamepadButton,
+              z.object({ buttons: z.union([gamepadButton, z.array(gamepadButton)]), durationMs: z.number().optional(), polls: z.number().optional() }),
+              z.object({ stick: z.enum(["left", "right"]), x: z.number(), y: z.number(), durationMs: z.number().optional(), polls: z.number().optional() }),
+              z.object({ waitMs: z.number() }),
+            ])
+          )
+          .optional()
+          .describe("For sequence: steps run in order, e.g. ['DPAD_DOWN', 'DPAD_DOWN', 'A'], { buttons: ['LB', 'RB'] }, { stick: 'left', x: 0, y: 1 } or { waitMs: 500 }"),
+        delayMs: z.number().optional().describe("Pause after each sequence step, for animations or UI that reacts after the input (default: 100)"),
+      }),
+    },
+    async (params) => {
+      log.info(`Gamepad input: ${params.action}`);
+      try {
+        const result = await gamepadInput(params);
         return {
           content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
         };
