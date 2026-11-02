@@ -4,23 +4,7 @@ All notable changes to the Gameface MCP server are recorded here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.4.0] - 2026-10-26
-
-### Added
-
-- `press_key` simulates keyboard input in Gameface for text entry, navigation,
-  shortcuts and held or repeated keys. It supports common keys and modifier
-  combinations, can direct focus to an element, and reports the keyboard events
-  received by the page and the resulting focus.
-- `gamepad_input` simulates a standard gamepad, including face and shoulder
-  buttons, triggers, the D-pad and analog sticks. It can connect or disconnect
-  a controller, inspect its current state, and play multi-step button and stick
-  sequences. Input is synchronized with the page's polling so presses register
-  predictably across different polling rates. Results include controller
-  state, events received by the page and focus changes, including outcomes for
-  each sequence step.
-
-## [Unreleased]
+## [1.5.0] - 2026-11-02
 
 ### Added
 
@@ -55,6 +39,22 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The Gemini CLI `/gameface-conductor` command. Gemini CLI loads the skill
   itself; install it with `npx skills add CoherentLabs/Gameface-MCP --agent
   gemini-cli`.
+
+## [1.4.0] - 2026-10-26
+
+### Added
+
+- `press_key` simulates keyboard input in Gameface for text entry, navigation,
+  shortcuts and held or repeated keys. It supports common keys and modifier
+  combinations, can direct focus to an element, and reports the keyboard events
+  received by the page and the resulting focus.
+- `gamepad_input` simulates a standard gamepad, including face and shoulder
+  buttons, triggers, the D-pad and analog sticks. It can connect or disconnect
+  a controller, inspect its current state, and play multi-step button and stick
+  sequences. Input is synchronized with the page's polling so presses register
+  predictably across different polling rates. Results include controller
+  state, events received by the page and focus changes, including outcomes for
+  each sequence step.
 
 ## [1.3.0] - 2026-10-20
 
