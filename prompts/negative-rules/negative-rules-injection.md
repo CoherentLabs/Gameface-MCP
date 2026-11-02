@@ -22,6 +22,26 @@ Gameface is a game-UI middleware that ships a subset of web standards. Emit only
   ✅ `transition-property: opacity`
      `transition-duration: var(--duration-normal)`
      `transition-timing-function: var(--ease-default)`
+- Transform transitions interpolate each function argument numerically in the
+  START value's unit; units are never resolved. Both endpoints must use the same
+  function list with the same units, or the element animates to the wrong place
+  and snaps to the real end value on the last frame.
+
+  ❌ `translateX(0px)` → `translateX(110%)` → animates toward 110 *pixels*, then snaps
+  ❌ `none` → `scale(1.1)`
+  ✅ `translateX(0%)` → `translateX(110%)`
+  ✅ `scale(1)` → `scale(1.1)`
+
+  Vite's CSS minifier (esbuild) strips units from zeros (`translateX(0%)` →
+  `translate(0)`, `translate(0%, -50%)` → `translateY(-50%)`), which breaks
+  endpoints even when the source CSS is correct. Route the animated value
+  through a custom property; esbuild can't evaluate `var()`, so the unit survives:
+
+  ✅ `.handle { --handle-x: 0%; transform: translateX(var(--handle-x)); }`
+     `.toggle.on .handle { --handle-x: 110%; }`
+
+  (`build.cssMinify: false` also works but costs ~20% CSS size.) Don't switch to
+  animating `left`/`top` instead; that forces a full layout solve every frame.
 - At-rules `@media`/`@supports`/`@layer`/`@container`/`@scope`/`@starting-style`/`@keyframes`; CSS nesting (`& .child`).
 - Selectors: type / `.class` / `#id` / `*` / all `[attr…]` / all combinators / `:hover`/`:focus`/`:active`/`:first-child`/`:last-child`/`:is`/`:not`/`:where`/`:lang`/`:root`/`:scope`/`:link`/`:visited`/`:target`, all form-state and media-state pseudos, `::before`/`::after`/`::placeholder`/`::marker`/`::part`/`::highlight`/`::slotted`/`::view-transition*`.
 - JS: `console.{log,info,warn,error,debug,assert,time,timeEnd}`, `setTimeout`/`setInterval`/`clearTimeout`/`clearInterval`/`queueMicrotask`, `performance.now()`, `Node`/`NodeList`/`NodeFilter`/`HTMLCollection`, `DOMTokenList` (so `element.classList` works), `Storage`, `Location`.

@@ -1,6 +1,6 @@
 {
   "name": "gameface-mcp",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "MCP server for driving and validating Coherent Gameface UI development over the Chrome DevTools Protocol: launch/connect to Gameface Player, inspect and interact with the DOM, run layout and performance assertions, and search Gameface documentation.",
   "type": "module",
   "main": "build/index.js",
@@ -18,6 +18,7 @@
   "scripts": {
     "build": "tsc",
     "watch": "tsc --watch",
+    "build:agents": "node scripts/agents/build-agents.mjs",
     "prepare": "npm run build"
   },
   "keywords": [

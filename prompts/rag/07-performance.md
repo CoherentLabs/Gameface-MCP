@@ -26,7 +26,7 @@ Every CSS property change triggers either:
 - **Full Layout Solve (`SolveFlexLayout`):** Any box-model change (`width`, `height`, `margin`, `padding`, `left`, `top`, `flex-*`). Expensive — runs Yoga.
 - **Transform Update (`UpdateNodeTransforms`):** Only `transform` or CSS `opacity` changes. Cheap — skips Yoga.
 
-Animating floating damage numbers via `top: 0 → -5rem` triggers a full Yoga solve every frame. Animating `transform: translateY(0) → translateY(-5rem)` does not. Always prefer `transform` for continuous animations.
+Animating floating damage numbers via `top: 0 → -5rem` triggers a full Yoga solve every frame. Animating `transform: translateY(0rem) → translateY(-5rem)` does not. Always prefer `transform` for continuous animations.
 
 ---
 
