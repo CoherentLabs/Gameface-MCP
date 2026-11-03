@@ -4,6 +4,25 @@ All notable changes to the Gameface MCP server are recorded here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0] - 2026-11-03
+
+### Added
+
+- HTTP transport. `--transport http` serves MCP over Streamable HTTP instead
+  of stdio, which stays the default. `--mcp-host`, `--mcp-port` and
+  `--mcp-path` set where it listens (defaults `127.0.0.1`, `8000`, `/sse`).
+  The same settings can go in `~/.gameface-mcp/config.json` as `transport`,
+  `mcpHost`, `mcpPort` and `mcpPath`.
+
+### Changed
+
+- `--port` and `--mcp-port` reject missing or non-numeric values at startup,
+  and `--mcp-port` must be 1-65535. `--mcp-path` must start with `/`.
+  `--transport` accepts only `stdio` or `http`.
+- Shutdown runs each cleanup step (disconnect, closing the Player, closing the
+  HTTP server) separately, so one failing no longer skips the rest. A fatal
+  startup error now goes through the same cleanup.
+
 ## [1.5.0] - 2026-11-02
 
 ### Added
