@@ -31,6 +31,10 @@ export interface ServerConfig {
    * choosePlayer). browserExecutable stays the default for every plain launch.
    */
   players: string[];
+  transport: "stdio" | "http";
+  mcpHost: string;
+  mcpPort: number;
+  mcpPath: string;
 }
 
 interface ConfigFileShape {
@@ -40,6 +44,10 @@ interface ConfigFileShape {
   cdpHost?: string;
   perfBudgetFile?: string;
   players?: string[];
+  transport?: "stdio" | "http";
+  mcpHost?: string;
+  mcpPort?: number;
+  mcpPath?: string;
 }
 
 // One config file per developer machine, not per-project - this server is
@@ -68,7 +76,40 @@ let config: ServerConfig = {
   port: 9444,
   cdpHost: "localhost",
   players: [],
+  transport: "stdio",
+  mcpHost: "127.0.0.1",
+  mcpPort: 8000,
+  mcpPath: "/sse",
 };
+
+function parseNumberOption(name: string, value: string | undefined): number {
+  if (!value) {
+    console.error(`Missing value for ${name}`);
+    process.exit(1);
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed)) {
+    console.error(`Invalid numeric value for ${name}: ${value}`);
+    process.exit(1);
+  }
+
+  return parsed;
+}
+
+function normalizeMcpPath(value: string | undefined): string {
+  if (!value) {
+    console.error("Missing value for --mcp-path");
+    process.exit(1);
+  }
+
+  if (!value.startsWith("/")) {
+    console.error(`Invalid --mcp-path value: ${value}. It must start with '/'.`);
+    process.exit(1);
+  }
+
+  return value;
+}
 
 function findConfigFlag(args: string[]): string | undefined {
   for (let i = 0; i < args.length; i++) {
@@ -110,6 +151,10 @@ export function parseArgs(args: string[]): ServerConfig {
     cdpHost: fileConfig.cdpHost || "localhost",
     perfBudgetFile: fileConfig.perfBudgetFile,
     players: Array.isArray(fileConfig.players) ? fileConfig.players : [],
+    transport: fileConfig.transport || "stdio",
+    mcpHost: fileConfig.mcpHost || "127.0.0.1",
+    mcpPort: fileConfig.mcpPort ?? 8000,
+    mcpPath: normalizeMcpPath(fileConfig.mcpPath || "/sse"),
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -130,7 +175,7 @@ export function parseArgs(args: string[]): ServerConfig {
 
       case "--port":
       case "-p":
-        config.port = parseInt(args[++i], 10);
+        config.port = parseNumberOption(arg, args[++i]);
         break;
 
       case "--cdp-host":
@@ -140,6 +185,38 @@ export function parseArgs(args: string[]): ServerConfig {
 
       case "--perf-budget":
         config.perfBudgetFile = args[++i];
+        break;
+
+      case "--transport": {
+        const value = args[++i];
+        if (value !== "stdio" && value !== "http") {
+          console.error(`Invalid --transport value: ${value}. Expected 'stdio' or 'http'.`);
+          process.exit(1);
+        }
+        config.transport = value;
+        break;
+      }
+
+      case "--mcp-host":
+        config.mcpHost = args[++i];
+        if (!config.mcpHost) {
+          console.error("Missing value for --mcp-host");
+          process.exit(1);
+        }
+        break;
+
+      case "--mcp-port": {
+        const parsedPort = parseNumberOption(arg, args[++i]);
+        if (parsedPort < 1 || parsedPort > 65535) {
+          console.error(`Invalid --mcp-port value: ${parsedPort}. Expected 1-65535.`);
+          process.exit(1);
+        }
+        config.mcpPort = parsedPort;
+        break;
+      }
+
+      case "--mcp-path":
+        config.mcpPath = normalizeMcpPath(args[++i]);
         break;
 
       case "--config":
@@ -175,6 +252,18 @@ Gameface MCP Server - Command Line Options
 Usage: gameface-mcp [options]
 
 Options:
+  --transport <stdio|http>          MCP transport mode
+                                     Default: stdio
+
+  --mcp-host <host>                 MCP HTTP listen host (only for --transport http)
+                                     Default: 127.0.0.1
+
+  --mcp-port <port>                 MCP HTTP listen port (only for --transport http)
+                                     Default: 8000
+
+  --mcp-path <path>                 MCP HTTP endpoint path (only for --transport http)
+                                     Default: /sse
+
   -b, --browser-executable <path>   Path to the Gameface Player executable
                                      If not specified, tools require explicit path
 
@@ -207,7 +296,11 @@ Config file:
       "browserExecutable": "D:/path/to/Player.exe",
       "browserArgs": ["--enable-gui=false"],
       "port": 9444,
-      "cdpHost": "localhost"
+      "cdpHost": "localhost",
+      "transport": "stdio",
+      "mcpHost": "127.0.0.1",
+      "mcpPort": 8000,
+      "mcpPath": "/sse"
     }
 
   The file and every field in it are optional.
@@ -222,13 +315,16 @@ Examples:
   # Connect to an already-running Player on a custom port
   gameface-mcp -p 9223
 
+  # Run MCP server over HTTP
+  gameface-mcp --transport http --mcp-host 127.0.0.1 --mcp-port 8000 --mcp-path /sse
+
   # Rely entirely on ~/.gameface-mcp/config.json - no CLI flags needed
   gameface-mcp
 
 Notes:
   - stdout is reserved for MCP protocol communication
   - All logs are written to stderr
-  - Server uses stdio transport for MCP communication
+  - Default MCP transport is stdio; set --transport http to use an HTTP endpoint
 `);
 }
 
