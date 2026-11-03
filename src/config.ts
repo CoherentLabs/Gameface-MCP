@@ -79,7 +79,7 @@ let config: ServerConfig = {
   transport: "stdio",
   mcpHost: "127.0.0.1",
   mcpPort: 8000,
-  mcpPath: "/sse",
+  mcpPath: "/mcp",
 };
 
 function parseNumberOption(name: string, value: string | undefined): number {
@@ -154,7 +154,7 @@ export function parseArgs(args: string[]): ServerConfig {
     transport: fileConfig.transport || "stdio",
     mcpHost: fileConfig.mcpHost || "127.0.0.1",
     mcpPort: fileConfig.mcpPort ?? 8000,
-    mcpPath: normalizeMcpPath(fileConfig.mcpPath || "/sse"),
+    mcpPath: normalizeMcpPath(fileConfig.mcpPath || "/mcp"),
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -262,7 +262,7 @@ Options:
                                      Default: 8000
 
   --mcp-path <path>                 MCP HTTP endpoint path (only for --transport http)
-                                     Default: /sse
+                                     Default: /mcp
 
   -b, --browser-executable <path>   Path to the Gameface Player executable
                                      If not specified, tools require explicit path
@@ -300,7 +300,7 @@ Config file:
       "transport": "stdio",
       "mcpHost": "127.0.0.1",
       "mcpPort": 8000,
-      "mcpPath": "/sse"
+      "mcpPath": "/mcp"
     }
 
   The file and every field in it are optional.
@@ -316,7 +316,7 @@ Examples:
   gameface-mcp -p 9223
 
   # Run MCP server over HTTP
-  gameface-mcp --transport http --mcp-host 127.0.0.1 --mcp-port 8000 --mcp-path /sse
+  gameface-mcp --transport http --mcp-host 127.0.0.1 --mcp-port 8000 --mcp-path /mcp
 
   # Rely entirely on ~/.gameface-mcp/config.json - no CLI flags needed
   gameface-mcp

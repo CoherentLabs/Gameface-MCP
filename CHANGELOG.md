@@ -4,6 +4,15 @@ All notable changes to the Gameface MCP server are recorded here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.1] - 2026-11-03
+
+### Changed
+
+- The HTTP transport's default endpoint is `/mcp` instead of `/sse`. The
+  transport is Streamable HTTP, not SSE, and `/mcp` is the path MCP clients
+  expect for it. Pass `--mcp-path /sse` or set `"mcpPath": "/sse"` in the
+  config file to keep the old path.
+
 ## [1.6.0] - 2026-11-03
 
 ### Added
