@@ -282,7 +282,6 @@ Options:
 
       --perf-budget <path>          Path to this project's performance budget
                                      Default: ./gameface-perf-budget.json
-
   --help                            Show this help message
 
 Config file:

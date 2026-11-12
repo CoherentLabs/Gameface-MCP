@@ -25,7 +25,7 @@ import { choosePlayer, chooseDefaultFromPlayers } from "./tools/choose-player.js
 import { addPlayersToList } from "./tools/add-players.js";
 import { resolveDefaultPlayer } from "./player-paths.js";
 import { assertTextFits, assertNoOverlap, assertWithinParent } from "./tools/assertions.js";
-import { searchGamefaceDocs } from "./tools/search-gameface-docs.js";
+import { searchGamefaceDocs, formatSearchResults, readGamefaceDocSection } from "./tools/search-gameface-docs.js";
 import { perfLint } from "./tools/perf-lint.js";
 import { perfMeasure } from "./tools/perf-measure.js";
 import { perfCalibrate } from "./tools/perf-calibrate.js";
@@ -41,6 +41,7 @@ import {
 } from "./tools/data-bindings.js";
 import { getCodeInstructionsResource } from "./resources/code-instructions.js";
 import { listRagResources, getRagDocResource, getRagIndexResource } from "./resources/rag-docs.js";
+import { runDocsSyncCli, startDocsAutoSync } from "./docs-sync.js";
 import { logger } from "./logger.js";
 import { parseArgs, setConfig, getConfig } from "./config.js";
 import { setBudgetPath, getBudgetPath } from "./perf-budget.js";
@@ -61,7 +62,10 @@ const mcpServer = new McpServer(
       "Before writing or modifying Gameface UI markup, CSS, or JS, call the " +
       "search_gameface_docs tool with a query describing what you're building " +
       "(e.g. 'flexbox layout', 'text overflow', 'localization RTL') to retrieve " +
-      "relevant guidance from the Gameface documentation corpus, and call the " +
+      "relevant guidance from the Gameface documentation corpus (which includes the " +
+      "official Gameface docs sites - search it first, and fetch the website only " +
+      "when search doesn't have the answer, preferring a page's Markdown version: " +
+      "its URL + index.html.md, as listed in the site's llms.txt), and call the " +
       "get_code_instructions tool for hard engine constraints. After " +
       "making layout changes, use assert_text_fits, assert_no_overlap, and " +
       "assert_within_parent to verify the result before considering the change done.",
@@ -646,20 +650,27 @@ function registerTools() {
   mcpServer.registerTool(
     "search_gameface_docs",
     {
-      description: "Searches the Gameface RAG documentation corpus (layout, scalability, interactions, graphics, fonts, performance, GamefaceUI components, live views, localization, custom effects, accessibility, animations, tooling) for chunks relevant to a query. Call this before writing or modifying Gameface UI code to pull in the specific constraints/patterns that apply, instead of guessing from general web knowledge.",
+      description: "Searches the Gameface documentation corpus (layout, scalability, interactions, graphics, fonts, performance, GamefaceUI components, live views, localization, custom effects, accessibility, animations, tooling, plus the official docs.coherent-labs.com pages: supported CSS/HTML/JS feature tables, data binding, performance guides) for chunks relevant to a query. Call this before writing or modifying Gameface UI code to pull in the specific constraints/patterns that apply, instead of guessing from general web knowledge. Pass every topic you need as `queries` in one call rather than one call per topic. Official results carry their source as site:path (the response's first line maps it to the page URL); the text returned is that page's content. If the results don't answer the question, don't conclude it's undocumented: fetch the page's Markdown version (page URL + index.html.md), or the page itself if that doesn't exist. Release notes and changelogs (topic '<site>/changelog') rank below the current docs unless the query asks about versions, e.g. 'backdrop-filter added in which version'. A result headed '(i/n)' is one part of a longer section: read_gameface_doc_section returns all of it.",
       inputSchema: z.object({
-        query: z.string().describe("Search query (keywords or a short phrase), e.g. 'flexbox layout', 'text overflow', 'localization RTL', 'button component props'"),
+        query: z.string().optional().describe("Search query (keywords or a short phrase), e.g. 'flexbox layout', 'text overflow', 'localization RTL', 'button component props'"),
+        queries: z.array(z.string()).max(10).optional().describe("Several search queries answered in one call, e.g. ['clip-path support', 'gsap animation', 'data-bind-for list']. Use instead of `query` when you need more than one topic."),
         topic: z.string().optional().describe("Optional filter: restrict results to chunks whose [TOPIC] tag contains this substring (e.g. 'layout', 'performance', 'gameface-ui-components')"),
         severity: z.string().optional().describe("Optional filter: restrict results to chunks with this exact [SEVERITY] tag (e.g. 'critical', 'high')"),
         maxResults: z.number().optional().describe("Maximum number of results to return (default: 5)"),
+        engine: z
+          .enum(["cpp", "unity", "unreal"])
+          .optional()
+          .describe("The game engine the project uses, for its integration docs (data binding, input, setup). Default: the engine the query names (e.g. 'unreal', 'C#'), else cpp"),
       }),
     },
-    async (params) => {
-      log.info(`Searching Gameface docs for: "${params.query}"`);
+    async ({ query, queries, ...filters }) => {
+      const list = (queries?.length ? queries : query ? [query] : []).filter((q) => q.trim());
+      log.info(`Searching Gameface docs for: ${list.map((q) => `"${q}"`).join(", ")}`);
       try {
-        const result = await searchGamefaceDocs(params);
+        if (!list.length) throw new Error("Pass `query` or `queries`");
+        const results = await Promise.all(list.map((q) => searchGamefaceDocs({ ...filters, query: q })));
         return {
-          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          content: [{ type: "text", text: formatSearchResults(list.map((q, i) => ({ query: q, result: results[i] }))) }],
         };
       } catch (error: any) {
         return {
@@ -668,6 +679,17 @@ function registerTools() {
         };
       }
     }
+  );
+
+  mcpServer.registerTool(
+    "read_gameface_doc_section",
+    {
+      description: "Returns the full text of an official Gameface docs section or page, for when a search_gameface_docs result is cut short or you need its surrounding context. Pass a source from a search result: with its #anchor for that section, without it for the whole page (a long page returns its section list instead).",
+      inputSchema: z.object({
+        source: z.string().describe("A source from search_gameface_docs, e.g. gameface:content_development/animationlibrariessupport/#gsap-core"),
+      }),
+    },
+    async ({ source }) => ({ content: [{ type: "text", text: await readGamefaceDocSection(source) }] })
   );
 
   // Get Code Instructions tool - same content as the gameface://code-instructions
@@ -1366,6 +1388,10 @@ async function main() {
   }
   
   log.info("Server started successfully");
+
+  // Syncs the official docs in the background (now, then daily); a fresh
+  // install's first search waits for it. Never blocks or fails startup.
+  startDocsAutoSync();
 }
 
 // Cleanup function
@@ -1422,12 +1448,28 @@ process.on("SIGTERM", async () => {
   await shutdown(0, "SIGTERM");
 });
 
-// Run the server
-main().catch((error) => {
-  log.error(`Fatal error: ${error.message}`);
-  logger.error(error.stack || error.toString());
-  shutdown(1, "fatal-startup-error").catch((shutdownError) => {
-    log.error(`Shutdown after fatal error failed: ${shutdownError.message}`);
-    process.exit(1);
+// Docs maintenance subcommands run instead of the server
+const subcommands: Record<string, (argv: string[]) => Promise<number>> = {
+  "sync-docs": runDocsSyncCli,
+};
+const subcommand = subcommands[process.argv[2]];
+
+if (subcommand) {
+  subcommand(process.argv.slice(3)).then(
+    (code) => process.exit(code),
+    (error) => {
+      console.error(`${process.argv[2]} failed: ${error.message}`);
+      process.exit(1);
+    }
+  );
+} else {
+  // Run the server
+  main().catch((error) => {
+    log.error(`Fatal error: ${error.message}`);
+    logger.error(error.stack || error.toString());
+    shutdown(1, "fatal-startup-error").catch((shutdownError) => {
+      log.error(`Shutdown after fatal error failed: ${shutdownError.message}`);
+      process.exit(1);
+    });
   });
-});
+}
