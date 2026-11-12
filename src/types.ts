@@ -288,6 +288,8 @@ export interface SearchGamefaceDocsParams {
   topic?: string;
   severity?: string;
   maxResults?: number;
+  /** Search this engine's integration pages; default: the engines the query names, else cpp. */
+  engine?: "cpp" | "unity" | "unreal";
 }
 
 export interface GamefaceDocResult {
@@ -304,6 +306,10 @@ export interface GamefaceDocResult {
 export interface SearchGamefaceDocsResult {
   resultCount: number;
   results: GamefaceDocResult[];
+  /** Set when nothing matched: what to try next (other keywords, then the docs website). */
+  hint?: string;
+  /** Set when the query's engine has no synced docs: where to fetch its engine-side steps. */
+  note?: string;
 }
 
 // Assert Within Parent Tool

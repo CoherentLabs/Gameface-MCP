@@ -22,26 +22,26 @@ npm install coherent-gameface-interaction-manager
 [TOPIC: interactions] [TYPE: api] [SEVERITY: high] [SOURCE: interaction-manager.mdx]
 ## Interaction Manager: Mapping Actions to Inputs
 
-Configure the Interaction Manager by registering action names and their bindings. Gamepad buttons are polled internally by the library — you do not need to implement your own polling loop.
+Register each action once with `actions.register`, then bind keys and gamepad buttons to it by name. There is no `InteractionManager` class to instantiate: the package exports `actions`, `keyboard` and `gamepad` objects. Gamepad buttons are polled by the library (every 200 ms, `gamepad.pollingInterval`) once `gamepad.enabled` is set — you do not need your own polling loop.
 
 ```javascript
-import { InteractionManager } from 'coherent-gameface-interaction-manager';
+import { actions, keyboard, gamepad } from 'coherent-gameface-interaction-manager';
 
-const im = new InteractionManager();
+actions.register('confirm', () => { /* activate focused element */ });
+actions.register('cancel', () => { /* close panel */ });
 
-im.addAction('Confirm', {
-    keys: ['Enter', ' '],
-    gamepadButtons: [0], // A button
-});
-im.addAction('Cancel', {
-    keys: ['Escape'],
-    gamepadButtons: [1], // B button
-});
+// type: 'press' | 'hold' | 'lift'. Several keys = a key combination, not alternatives.
+keyboard.on({ keys: ['Enter'], callback: 'confirm', type: 'press' });
+keyboard.on({ keys: ['Escape'], callback: 'cancel', type: 'press' });
 
-im.on('Confirm', () => { /* activate focused element */ });
-im.on('Cancel', () => { /* close panel */ });
-im.start();
+gamepad.enabled = true;
+gamepad.on({ actions: ['face-button-down'], callback: 'confirm' }); // A / Cross
+gamepad.on({ actions: ['face-button-right'], callback: 'cancel' }); // B / Circle
+
+// keyboard.off(['Escape'], 'cancel'); actions.remove('cancel');
 ```
+
+`callback` takes a registered action name or a function. A `lift` binding works with a single key only.
 
 ---
 

@@ -136,9 +136,10 @@ Cypress and Playwright cannot connect to Gameface because they require a Chrome/
 
 The `gameface-e2e` framework solves this with a custom test runner that connects to the Gameface DevTools endpoint and drives the UI programmatically.
 
-Install:
+Install, then run the `.spec` files (mocha `describe`/`it`) against the Player:
 ```bash
-npm install --save-dev coherent-gameface-e2e
+npm install gameface-e2e --save-dev
+npx gameface-e2e --gamefacePath=path/to/Player.exe --tests=tests/**/*.spec.js
 ```
 
 ---
@@ -147,24 +148,23 @@ npm install --save-dev coherent-gameface-e2e
 [TOPIC: tooling] [TYPE: api] [SEVERITY: high] [SOURCE: ui-testing.mdx]
 ## gameface-e2e: Writing Tests with the gf Object
 
-Tests use the `gf` global to interact with UI elements. The `DOMElement` API wraps elements for querying, clicking, and value inspection:
+Tests use the `gf` global. `gf.get(selector)` returns a `DOMElement` for clicking, focusing and assertions; `gf.click(selector)`, `gf.keyPress(key)` and `gf.navigate(url)` act on the page directly. The `element.waitFor*` methods (`waitForText`, `waitForClasses`, `waitForAttributes`, `waitForStyles`, `waitForVisibility`, ...) retry until the state matches, resolve to `true`, and throw on timeout:
 
 ```javascript
-describe('Inventory Panel', () => {
+describe('Inventory Panel', function () {
     it('equips item on confirm press', async () => {
-        // Wait for the element to exist in the DOM
-        const slot = await gf.waitForElement('.inventory-slot:first-child');
-
-        // Simulate focus and confirm press
+        const slot = await gf.get('.inventory-slot:first-child');
         await slot.focus();
-        await gf.pressKey('Enter');
+        await gf.keyPress(13); // Enter: a key code, or a gf.KEYS entry
 
-        // Assert the equipped state class was applied
-        const equipped = await gf.waitForElement('.equipped-indicator');
-        expect(equipped).toBeTruthy();
+        const status = await gf.get('.equip-status');
+        assert(await status.waitForText('Equipped'));
+        assert(await slot.waitForClasses(['equipped']));
     });
 });
 ```
+
+Clicking on text elements isn't supported: click the element that contains the text.
 
 ---
 
@@ -172,18 +172,27 @@ describe('Inventory Panel', () => {
 [TOPIC: tooling] [TYPE: api] [SEVERITY: high] [SOURCE: ui-testing.mdx]
 ## gameface-e2e: Mocking Engine Data and Events
 
-The test framework provides helpers to inject binding data and simulate engine events without a running game:
+The test framework provides helpers to create and update data-binding models and simulate engine events without a running game:
 
 ```javascript
-// Inject model data
-await gf.setEngineModel('PlayerModel', { health: 15, ammo: 0 });
+describe('HUD', function () {
+    const PlayerModel = { health: 15, ammo: 0 };
 
-// Simulate an engine event the UI listens for
-await gf.triggerEngineEvent('PlayerDied');
+    this.beforeAll(async () => {
+        await gf.navigate('./hud.html');
+        await gf.createModel('PlayerModel', PlayerModel);
+    });
 
-// Verify UI state after event
-const deathScreen = await gf.waitForElement('.death-screen');
-expect(deathScreen).toBeVisible();
+    it('shows the death screen', async () => {
+        // Changes go inside the function; it calls updateWholeModel + synchronizeModels for you
+        await gf.updateModel('PlayerModel', (health) => { PlayerModel.health = health; }, 0);
+
+        // Simulate an engine event the UI listens for (engine.on)
+        await gf.triggerEngineEvent('PlayerDied', { cause: 'fall' });
+
+        assert(await gf.isVisible('.death-screen'));
+    });
+});
 ```
 
 ---
@@ -192,18 +201,27 @@ expect(deathScreen).toBeVisible();
 [TOPIC: tooling] [TYPE: api] [SEVERITY: medium] [SOURCE: ui-testing.mdx]
 ## gameface-e2e: Gamepad Input Simulation
 
-The `GamefaceGamepad` class simulates gamepad button presses and D-Pad navigation in tests:
+Connect a virtual gamepad with `gf.connectGamepad(id)` (it returns a `GamefaceGamepad`), then press, hold or release buttons and move the sticks. Button ids are in `gf.GAMEPAD_BUTTONS`:
 
 ```javascript
-const gamepad = new GamefaceGamepad();
+const GAMEPAD_ID = 'test-pad';
 
-await gamepad.pressButton(0);  // A button — confirm
-await gamepad.pressButton(1);  // B button — cancel/back
-await gamepad.pressDPad('up'); // D-Pad up — spatial navigation
+describe('Menu navigation', function () {
+    before(async () => { await gf.connectGamepad(GAMEPAD_ID); });
+    after(async () => { await gf.disconnectGamepad(GAMEPAD_ID); });
 
-// Wait for focus to move to expected element
-await gf.waitForFocus('.next-menu-item');
+    it('moves focus down and confirms', async () => {
+        const gamepad = gf.getGamepad(GAMEPAD_ID);
+        await gamepad.press(gf.GAMEPAD_BUTTONS.PAD_DOWN);          // press and release
+        await gamepad.press(gf.GAMEPAD_BUTTONS.FACE_BUTTON_DOWN);  // A / Cross
+
+        const next = await gf.get('.next-menu-item');
+        assert.equal(await next.isFocused(), true);
+    });
+});
 ```
+
+`gamepad.press([a, b])` presses several buttons together; `hold`, `release`, `sequence`, `moveLeftStick` and `moveRightStick` cover the rest.
 
 ---
 
@@ -212,5 +230,4 @@ The following sub-topics from this category were not found in any MDX source:
 - ESLint rules specific to Gameface (custom ruleset package name, installation, rule list)
 - Static linter for Gameface: whether there is a CSS linter that validates against Gameface CSS support matrix
 - Gameface Player CLI flags: full flag reference beyond `--url`
-- gameface-e2e configuration file format: how to set up the test runner, connect to the Player, configure timeouts
-- `gf.waitForElement` and other `waitFor*` method signatures and timeout options
+- gameface-e2e configuration file format: how to set up the test runner, connect to the Player, configure timeouts (the official frontend-tools docs cover it)
